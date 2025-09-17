@@ -1,9 +1,7 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { cn } from '@/lib/utils';
 import {
   Sidebar,
   SidebarContent,
@@ -119,13 +117,13 @@ export function AppSidebar({ activeAlerts = 0 }: AppSidebarProps) {
           <SidebarGroupContent>
             <SidebarMenu>
               {navigationItems.map((item) => {
-                const isActive = pathname === item.url || 
+                const isActive = pathname === item.url ||
                   (item.url !== '/dashboard' && pathname.startsWith(item.url));
-                
+
                 return (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton 
-                      asChild 
+                    <SidebarMenuButton
+                      asChild
                       isActive={isActive}
                       tooltip={item.description}
                     >
@@ -153,11 +151,11 @@ export function AppSidebar({ activeAlerts = 0 }: AppSidebarProps) {
             <SidebarMenu>
               {adminItems.map((item) => {
                 const isActive = pathname === item.url;
-                
+
                 return (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton 
-                      asChild 
+                    <SidebarMenuButton
+                      asChild
                       isActive={isActive}
                       tooltip={item.description}
                     >

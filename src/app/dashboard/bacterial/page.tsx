@@ -26,47 +26,59 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  ReferenceLine
+  ReferenceLine,
+  LineChart,
+  Line
 } from 'recharts';
 import {
   Microscope,
   AlertTriangle,
-  CheckCircle,
-  TrendingUp,
   Download,
   Filter,
   Bug,
-  Shield
+  Shield,
+  Activity,
+  Droplets,
+  Zap
 } from 'lucide-react';
 import {
-  getBacteriologicalSamples,
-  getBacteriologicalTrendData,
-  getBacteriologicalStats,
   formatDate,
   getQualityColor,
-  getQualityText
+  getQualityText,
+  getFaucets,
+  getSamplesByFaucet,
+  getRelativeTime
 } from '@/lib/data';
-import { WaterSample, BacteriologicalParameters } from '@/types';
-import { QUALITY_LIMITS } from '@/types/quality-limits';
-
+import { WaterSample, BacteriologicalParameters, Faucet } from '@/types';
 
 type TimeRange = '7d' | '30d' | '90d' | '1y';
-type BacterialType = 'totalColiforms' | 'fecalColiforms' | 'ecoli' | 'enterococci' | 'pseudomonas';
 
-const BACTERIAL_LABELS: Record<BacterialType, string> = {
-  totalColiforms: 'Coliformes Totales',
-  fecalColiforms: 'Coliformes Fecales',
-  ecoli: 'E. coli',
-  enterococci: 'Enterococos',
-  pseudomonas: 'Pseudomonas'
+// Parámetros bacteriológicos críticos según el reglamento (Tabla 1, Anexo I)
+const CRITICAL_BACTERIAL_PARAMETERS = {
+  // Parámetros MUY GRAVE - Acción inmediata
+  criticalPathogens: [
+    { key: 'escherichiaColi', name: 'Escherichia coli', limit: 0, unit: 'UFC/100ml', severity: 'MUY GRAVE', color: '#dc2626' },
+    { key: 'enterococci', name: 'Enterococo intestinal', limit: 0, unit: 'UFC/100ml', severity: 'MUY GRAVE', color: '#dc2626' },
+  ],
+  // Parámetros GRAVE - Control ETAP y vigilancia
+  controlPathogens: [
+    { key: 'clostridiumPerfringens', name: 'Clostridium perfringens', limit: 0, unit: 'UFC/100ml', severity: 'GRAVE', color: '#ef4444' },
+    { key: 'legionellaSpp', name: 'Legionella spp.', limit: 100, unit: 'UFC/1L', severity: 'GRAVE', color: '#ef4444' },
+  ],
+  // Indicadores bacteriológicos
+  indicators: [
+    { key: 'totalColiforms', name: 'Bacterias coliformes', limit: 0, unit: 'UFC/100ml', severity: 'INDICADOR', color: '#f59e0b' },
+    { key: 'heterotrophicBacteria', name: 'Recuento colonias 22°C', limit: 100, unit: 'UFC/1ml', severity: 'LEVE', color: '#3b82f6' },
+    { key: 'pseudomonasAeruginosa', name: 'Pseudomonas aeruginosa', limit: 0, unit: 'UFC/100ml', severity: 'MODERADO', color: '#8b5cf6' },
+  ]
 };
 
-const BACTERIAL_COLORS: Record<BacterialType, string> = {
-  totalColiforms: '#3b82f6',
-  fecalColiforms: '#ef4444',
-  ecoli: '#f59e0b',
-  enterococci: '#8b5cf6',
-  pseudomonas: '#10b981'
+const SEVERITY_COLORS = {
+  'MUY GRAVE': '#dc2626',
+  'GRAVE': '#ef4444',
+  'MODERADO': '#f59e0b',
+  'LEVE': '#3b82f6',
+  'INDICADOR': '#6b7280'
 };
 
 const RISK_COLORS = {
@@ -76,93 +88,133 @@ const RISK_COLORS = {
   critical: '#dc2626'
 };
 
+interface CriticalBacterialParameter {
+  key: string;
+  name: string;
+  limit: number;
+  unit: string;
+  severity: string;
+  color: string;
+  value: number;
+  isExceeded: boolean;
+  riskLevel: string;
+}
+
+interface TrendDataPoint {
+  date: string;
+  ecoli: number;
+  enterococci: number;
+  coliforms: number;
+  legionella?: number;
+  clostridium?: number;
+  pseudomonas: number;
+}
+
 export default function BacteriologicalAnalysisPage() {
-  const [samples, setSamples] = useState<WaterSample[]>([]);
-  const [trendData, setTrendData] = useState<Array<{date: string; [key: string]: string | number}>>([]);
-  const [stats, setStats] = useState<{total: number; compliant: number; nonCompliant: number; complianceRate: number; avgTotalColiforms: number; avgEscherichiaColi: number; contaminated: number} | null>(null);
-  const [selectedBacterial, setSelectedBacterial] = useState<BacterialType>('totalColiforms');
+  const [selectedFaucet, setSelectedFaucet] = useState<string>('');
+  const [faucets, setFaucets] = useState<Faucet[]>([]);
+  const [faucetSamples, setFaucetSamples] = useState<WaterSample[]>([]);
+  const [criticalParams, setCriticalParams] = useState<CriticalBacterialParameter[]>([]);
+  const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
-  const [selectedLocation, setSelectedLocation] = useState<string>('all');
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
-      
+
       // Simular carga de datos
       await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const bacterialSamples = getBacteriologicalSamples();
-      setSamples(bacterialSamples.slice(0, 20)); // Mostrar las 20 más recientes
-      setTrendData(getBacteriologicalTrendData());
-      setStats(getBacteriologicalStats());
-      
+
+      const allFaucets = getFaucets();
+      setFaucets(allFaucets);
+
+      // Seleccionar el primer grifo activo por defecto
+      const activeFaucets = allFaucets.filter(f => f.status === 'active');
+      if (activeFaucets.length > 0 && !selectedFaucet) {
+        setSelectedFaucet(activeFaucets[0].id);
+      }
+
       setIsLoading(false);
     };
 
     loadData();
-  }, [timeRange, selectedLocation]);
+  }, []);
 
-  const getBacterialValue = (parameters: BacteriologicalParameters, type: BacterialType): number => {
-    switch (type) {
-      case 'totalColiforms': return parameters.totalColiforms;
-      case 'fecalColiforms': return parameters.fecalColiforms;
-      case 'ecoli': return parameters.escherichiaColi;
-      case 'enterococci': return parameters.enterococci;
-      case 'pseudomonas': return parameters.pseudomonasAeruginosa;
-      default: return 0;
+  useEffect(() => {
+    if (selectedFaucet) {
+      loadFaucetData(selectedFaucet);
+    }
+  }, [selectedFaucet, timeRange]);
+
+  const loadFaucetData = (faucetId: string) => {
+    const samples = getSamplesByFaucet(faucetId);
+    setFaucetSamples(samples);
+
+    // Analizar parámetros críticos de la última muestra
+    if (samples.length > 0) {
+      const latestSample = samples[samples.length - 1];
+      const critical = analyzeCriticalBacterialParameters(latestSample);
+      setCriticalParams(critical);
+
+      // Generar datos de tendencia
+      const trend = generateBacterialTrendData(samples.slice(-10));
+      setTrendData(trend);
+    } else {
+      setCriticalParams([]);
+      setTrendData([]);
     }
   };
 
-  const getBacterialLimit = (type: BacterialType): number => {
-    const parameterMap: Record<BacterialType, string> = {
-      'totalColiforms': 'totalColiforms',
-      'fecalColiforms': 'fecalColiforms',
-      'ecoli': 'escherichiaColi',
-      'enterococci': 'enterococci',
-      'pseudomonas': 'pseudomonasAeruginosa'
-    };
-    
-    const limit = QUALITY_LIMITS.find(l => l.parameter === parameterMap[type]);
-    return limit?.maxValue || 0;
+  const analyzeCriticalBacterialParameters = (sample: WaterSample) => {
+    const results: CriticalBacterialParameter[] = [];
+    const allParams = [
+      ...CRITICAL_BACTERIAL_PARAMETERS.criticalPathogens,
+      ...CRITICAL_BACTERIAL_PARAMETERS.controlPathogens,
+      ...CRITICAL_BACTERIAL_PARAMETERS.indicators
+    ];
+
+    allParams.forEach(param => {
+      const value = (sample.bacteriologicalParameters as unknown as Record<string, number>)[param.key];
+      if (value !== undefined) {
+        const isExceeded = value > param.limit;
+
+        results.push({
+          ...param,
+          value,
+          isExceeded,
+          riskLevel: isExceeded ? param.severity : 'NORMAL'
+        });
+      }
+    });
+
+    return results;
   };
 
-  const getRiskLevel = (value: number, limit: number): string => {
-    if (value === 0) return 'safe';
-    if (value <= limit * 0.5) return 'moderate';
-    if (value <= limit) return 'high';
-    return 'critical';
+  const generateBacterialTrendData = (samples: WaterSample[]) => {
+    return samples.map(sample => ({
+      date: new Date(sample.collectionDate).toLocaleDateString('es-CO', { month: 'short', day: 'numeric' }),
+      ecoli: sample.bacteriologicalParameters.escherichiaColi,
+      enterococci: sample.bacteriologicalParameters.enterococci,
+      coliforms: sample.bacteriologicalParameters.totalColiforms,
+      legionella: sample.bacteriologicalParameters.legionellaSpp || 0,
+      clostridium: sample.bacteriologicalParameters.clostridiumPerfringens || 0,
+      pseudomonas: sample.bacteriologicalParameters.pseudomonasAeruginosa,
+    }));
   };
 
-  const chartData = samples.map(sample => {
-    const value = getBacterialValue(sample.bacteriologicalParameters, selectedBacterial);
-    const limit = getBacterialLimit(selectedBacterial);
-    return {
-      date: formatDate(sample.collectionDate, 'short'),
-      value,
-      location: sample.faucet.location.name,
-      quality: sample.qualityRating,
-      risk: getRiskLevel(value, limit)
-    };
-  });
-
-  // Datos para gráfico circular de distribución de riesgo
-  const riskDistribution = [
-    { name: 'Seguro', value: chartData.filter(d => d.risk === 'safe').length, color: RISK_COLORS.safe },
-    { name: 'Moderado', value: chartData.filter(d => d.risk === 'moderate').length, color: RISK_COLORS.moderate },
-    { name: 'Alto', value: chartData.filter(d => d.risk === 'high').length, color: RISK_COLORS.high },
-    { name: 'Crítico', value: chartData.filter(d => d.risk === 'critical').length, color: RISK_COLORS.critical }
-  ].filter(item => item.value > 0);
-
-  // Datos para gráfico de área de tendencias
-  const areaData = trendData.map(item => ({
-    date: item.date,
-    totalColiforms: item.totalColiforms || 0,
-    fecalColiforms: item.fecalColiforms || 0,
-    escherichiaColi: item.escherichiaColi || 0,
-    enterococci: item.enterococci || 0,
-    pseudomonasAeruginosa: item.pseudomonasAeruginosa || 0
-  }));
+  const selectedFaucetData = faucets.find(f => f.id === selectedFaucet);
+  const criticalCount = criticalParams.filter(p => p.isExceeded).length;
+  const totalCritical = criticalParams.length;
+  const criticalPathogensCount = criticalParams.filter(p =>
+    CRITICAL_BACTERIAL_PARAMETERS.criticalPathogens.some(cp => cp.key === p.key) && p.isExceeded
+  ).length;
+  const controlPathogensCount = criticalParams.filter(p =>
+    CRITICAL_BACTERIAL_PARAMETERS.controlPathogens.some(cp => cp.key === p.key) && p.isExceeded
+  ).length;
+  const indicatorsCount = criticalParams.filter(p =>
+    CRITICAL_BACTERIAL_PARAMETERS.indicators.some(ind => ind.key === p.key) && p.isExceeded
+  ).length;
 
   if (isLoading) {
     return (
@@ -174,378 +226,369 @@ export default function BacteriologicalAnalysisPage() {
 
   return (
     <div className="space-y-6">
-      {/* Controles */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Análisis Bacteriológicos</h1>
-          <p className="text-muted-foreground">
-            Monitoreo microbiológico y control de patógenos
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Select value={timeRange} onValueChange={(value: TimeRange) => setTimeRange(value)}>
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="7d">7 días</SelectItem>
-              <SelectItem value="30d">30 días</SelectItem>
-              <SelectItem value="90d">90 días</SelectItem>
-              <SelectItem value="1y">1 año</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" size="sm">
-            <Filter className="h-4 w-4 mr-2" />
-            Filtros
-          </Button>
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" />
-            Exportar
-          </Button>
-        </div>
-      </div>
-
-      {/* Estadísticas Rápidas */}
-      {stats && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Muestras Analizadas
-              </CardTitle>
-              <Microscope className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.total}</div>
-              <p className="text-xs text-muted-foreground">
-                Total de muestras
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Muestras Seguras
-              </CardTitle>
-              <Shield className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.compliant}</div>
-              <p className="text-xs text-muted-foreground">
-                {stats.complianceRate}% del total
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Detecciones Críticas
-              </CardTitle>
-              <Bug className="h-4 w-4 text-red-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.contaminated}</div>
-              <p className="text-xs text-muted-foreground">
-                Requieren acción inmediata
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                No Conformes
-              </CardTitle>
-              <AlertTriangle className="h-4 w-4 text-orange-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.nonCompliant}</div>
-              <p className="text-xs text-muted-foreground">
-                Requieren seguimiento
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Gráficos */}
-      <Tabs defaultValue="trends" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="trends">Tendencias</TabsTrigger>
-          <TabsTrigger value="distribution">Distribución</TabsTrigger>
-          <TabsTrigger value="comparison">Comparación</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="trends" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Tendencias Bacteriológicas</CardTitle>
-              <CardDescription>
-                Evolución temporal de microorganismos detectados
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={areaData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis />
-                    <Tooltip 
-                      formatter={(value: number, name: string) => [
-                        `${value} UFC/100mL`,
-                        BACTERIAL_LABELS[name as BacterialType] || name
-                      ]}
-                      labelFormatter={(label) => `Fecha: ${label}`}
-                    />
-                    <Legend />
-                    <Area 
-                      type="monotone" 
-                      dataKey="totalColiforms" 
-                      stackId="1"
-                      stroke={BACTERIAL_COLORS.totalColiforms}
-                      fill={BACTERIAL_COLORS.totalColiforms}
-                      fillOpacity={0.6}
-                      name="Coliformes Totales"
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="fecalColiforms" 
-                      stackId="1"
-                      stroke={BACTERIAL_COLORS.fecalColiforms}
-                      fill={BACTERIAL_COLORS.fecalColiforms}
-                      fillOpacity={0.6}
-                      name="Coliformes Fecales"
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="eColi" 
-                      stackId="1"
-                      stroke={BACTERIAL_COLORS.ecoli}
-                      fill={BACTERIAL_COLORS.ecoli}
-                      fillOpacity={0.6}
-                      name="E. coli"
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="enterococci" 
-                      stackId="1"
-                      stroke={BACTERIAL_COLORS.enterococci}
-                      fill={BACTERIAL_COLORS.enterococci}
-                      fillOpacity={0.6}
-                      name="Enterococos"
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="pseudomonas" 
-                      stackId="1"
-                      stroke={BACTERIAL_COLORS.pseudomonas}
-                      fill={BACTERIAL_COLORS.pseudomonas}
-                      fillOpacity={0.6}
-                      name="Pseudomonas"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="distribution" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Distribución de Riesgo</CardTitle>
-                <CardDescription>
-                  Clasificación de muestras por nivel de riesgo microbiológico
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={riskDistribution}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {riskDistribution.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value: number) => [`${value} muestras`, 'Cantidad']} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Detecciones por Microorganismo</CardTitle>
-                <CardDescription>
-                  Frecuencia de detección de cada tipo bacteriano
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {Object.entries(BACTERIAL_LABELS).map(([key, label]) => {
-                    const detections = samples.filter(s => 
-                      getBacterialValue(s.bacteriologicalParameters, key as BacterialType) > 0
-                    ).length;
-                    const percentage = Math.round((detections / samples.length) * 100);
-                    
-                    return (
-                      <div key={key} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div 
-                              className="w-3 h-3 rounded-full"
-                              style={{ backgroundColor: BACTERIAL_COLORS[key as BacterialType] }}
-                            />
-                            <span className="text-sm font-medium">{label}</span>
-                          </div>
-                          <span className="text-sm text-muted-foreground">
-                            {detections} ({percentage}%)
-                          </span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div 
-                            className="h-2 rounded-full transition-all duration-300"
-                            style={{ 
-                              width: `${percentage}%`,
-                              backgroundColor: BACTERIAL_COLORS[key as BacterialType]
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="comparison" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Comparación por Ubicación</CardTitle>
-                  <CardDescription>
-                    Niveles de {BACTERIAL_LABELS[selectedBacterial]} por ubicación
-                  </CardDescription>
-                </div>
-                <Select 
-                  value={selectedBacterial} 
-                  onValueChange={(value: BacterialType) => setSelectedBacterial(value)}
-                >
-                  <SelectTrigger className="w-48">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(BACTERIAL_LABELS).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData.slice(0, 10)}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="location" angle={-45} textAnchor="end" height={80} />
-                    <YAxis />
-                    <Tooltip 
-                      formatter={(value: number) => [`${value} UFC/100mL`, BACTERIAL_LABELS[selectedBacterial]]}
-                    />
-                    <Legend />
-                    <Bar 
-                      dataKey="value" 
-                      fill={BACTERIAL_COLORS[selectedBacterial]}
-                      name={BACTERIAL_LABELS[selectedBacterial]}
-                    />
-                    <ReferenceLine 
-                      y={getBacterialLimit(selectedBacterial)} 
-                      stroke="#ef4444" 
-                      strokeDasharray="5 5"
-                      label={{ value: "Límite máximo", position: "top" }}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* Muestras Recientes */}
+      {/* Selector de Grifo */}
       <Card>
         <CardHeader>
-          <CardTitle>Análisis Recientes</CardTitle>
-          <CardDescription>
-            Últimos resultados bacteriológicos
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {samples.slice(0, 8).map((sample) => {
-              const hasDetections = Object.values(sample.bacteriologicalParameters).some(value => value > 0);
-              const criticalDetections = Object.entries(sample.bacteriologicalParameters).filter(([key, value]) => {
-                const limit = getBacterialLimit(key as BacterialType);
-                return value > limit;
-              }).length;
-              
-              return (
-                <div key={sample.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      {hasDetections ? (
-                        <Bug className="h-4 w-4 text-orange-500" />
-                      ) : (
-                        <Shield className="h-4 w-4 text-green-500" />
-                      )}
-                      <div>
-                        <p className="text-sm font-medium">
-                          {sample.faucet.location.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDate(sample.collectionDate)}
-                        </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Microscope className="h-5 w-5" />
+                Análisis Bacteriológicos por Grifo
+              </CardTitle>
+              <CardDescription>
+                Monitoreo microbiológico según parámetros críticos del reglamento técnico
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Select value={selectedFaucet} onValueChange={setSelectedFaucet}>
+                <SelectTrigger className="w-[300px]">
+                  <SelectValue placeholder="Seleccionar grifo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {faucets.filter(f => f.status === 'active').map((faucet) => (
+                    <SelectItem key={faucet.id} value={faucet.id}>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${faucet.status === 'active' ? 'bg-green-500' :
+                          faucet.status === 'maintenance' ? 'bg-yellow-500' : 'bg-red-500'
+                          }`} />
+                        {faucet.name} ({faucet.code})
                       </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {criticalDetections > 0 && (
-                      <Badge variant="destructive">
-                        {criticalDetections} crítico{criticalDetections > 1 ? 's' : ''}
-                      </Badge>
-                    )}
-                    <Badge 
-                      style={{ 
-                        backgroundColor: getQualityColor(sample.qualityRating),
-                        color: 'white'
-                      }}
-                    >
-                      {getQualityText(sample.qualityRating)}
-                    </Badge>
-                  </div>
-                </div>
-              );
-            })}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={timeRange} onValueChange={(value: TimeRange) => setTimeRange(value)}>
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7d">7 días</SelectItem>
+                  <SelectItem value="30d">30 días</SelectItem>
+                  <SelectItem value="90d">90 días</SelectItem>
+                  <SelectItem value="1y">1 año</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm">
+                <Download className="h-4 w-4 mr-2" />
+                Exportar
+              </Button>
+            </div>
           </div>
-        </CardContent>
+        </CardHeader>
       </Card>
+
+      {selectedFaucetData && (
+        <>
+          {/* Estadísticas del Grifo */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Estado del Grifo</CardTitle>
+                <Activity className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full ${selectedFaucetData.status === 'active' ? 'bg-green-500' :
+                    selectedFaucetData.status === 'maintenance' ? 'bg-yellow-500' : 'bg-red-500'
+                    }`} />
+                  <span className="text-lg font-bold capitalize">
+                    {selectedFaucetData.status === 'active' ? 'Activo' :
+                      selectedFaucetData.status === 'maintenance' ? 'Mantenimiento' : 'Fuera de Servicio'}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {selectedFaucetData.location.building} - {selectedFaucetData.location.floor}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Muestras Bacteriológicas</CardTitle>
+                <Microscope className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{faucetSamples.length}</div>
+                <p className="text-xs text-muted-foreground">
+                  Última: {faucetSamples.length > 0 ?
+                    getRelativeTime(faucetSamples[faucetSamples.length - 1].collectionDate) :
+                    'Sin datos'}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Patógenos Detectados</CardTitle>
+                <Bug className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  <span className={criticalCount > 0 ? 'text-red-600' : 'text-green-600'}>
+                    {criticalCount}
+                  </span>
+                  <span className="text-sm text-muted-foreground">/{totalCritical}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {criticalCount > 0 ? 'Detecciones positivas' : 'Sin detecciones'}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Riesgo Microbiológico</CardTitle>
+                <Zap className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold ${criticalPathogensCount > 0 ? 'text-red-600' :
+                  controlPathogensCount > 0 ? 'text-orange-600' :
+                    indicatorsCount > 0 ? 'text-yellow-600' : 'text-green-600'
+                  }`}>
+                  {criticalPathogensCount > 0 ? 'CRÍTICO' :
+                    controlPathogensCount > 0 ? 'ALTO' :
+                      indicatorsCount > 0 ? 'MEDIO' : 'BAJO'}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Críticos: {criticalPathogensCount} | Control: {controlPathogensCount}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Análisis Detallado por Categorías */}
+          <Tabs defaultValue="criticalPathogens" className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="criticalPathogens">Patógenos Críticos</TabsTrigger>
+              <TabsTrigger value="controlPathogens">Control ETAP</TabsTrigger>
+              <TabsTrigger value="indicators">Indicadores</TabsTrigger>
+              <TabsTrigger value="trends">Tendencias</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="criticalPathogens" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-red-500" />
+                    Patógenos Críticos (Tabla 1, Anexo I) - MUY GRAVE
+                  </CardTitle>
+                  <CardDescription>
+                    Microorganismos que requieren acción inmediata - Límite: 0 UFC/100ml
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {criticalParams.filter(p =>
+                      CRITICAL_BACTERIAL_PARAMETERS.criticalPathogens.some(cp => cp.key === p.key)
+                    ).map((param, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-sm">{param.name}</p>
+                            <Badge
+                              variant={param.isExceeded ? "destructive" : "secondary"}
+                              className="text-xs"
+                              style={{
+                                backgroundColor: param.isExceeded ? SEVERITY_COLORS[param.severity as keyof typeof SEVERITY_COLORS] : undefined
+                              }}
+                            >
+                              {param.severity}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Límite: ≤ {param.limit} {param.unit}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-bold ${param.isExceeded ? 'text-red-600' : 'text-green-600'}`}>
+                            {param.value} {param.unit}
+                          </p>
+                          {param.isExceeded && (
+                            <div className="flex items-center gap-1 mt-1">
+                              <AlertTriangle className="h-4 w-4 text-red-500" />
+                              <span className="text-xs text-red-600 font-medium">ACCIÓN INMEDIATA</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {criticalParams.filter(p =>
+                      CRITICAL_BACTERIAL_PARAMETERS.criticalPathogens.some(cp => cp.key === p.key)
+                    ).length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          No hay datos de patógenos críticos disponibles
+                        </p>
+                      )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="controlPathogens" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="h-5 w-5 text-orange-500" />
+                    Control ETAP (Tabla 1, Anexo I) - GRAVE
+                  </CardTitle>
+                  <CardDescription>
+                    Microorganismos para control en plantas de tratamiento
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {criticalParams.filter(p =>
+                      CRITICAL_BACTERIAL_PARAMETERS.controlPathogens.some(cp => cp.key === p.key)
+                    ).map((param, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-sm">{param.name}</p>
+                            <Badge
+                              variant={param.isExceeded ? "destructive" : "secondary"}
+                              className="text-xs"
+                              style={{
+                                backgroundColor: param.isExceeded ? SEVERITY_COLORS[param.severity as keyof typeof SEVERITY_COLORS] : undefined
+                              }}
+                            >
+                              {param.severity}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Límite: ≤ {param.limit} {param.unit}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-bold ${param.isExceeded ? 'text-red-600' : 'text-green-600'}`}>
+                            {param.value} {param.unit}
+                          </p>
+                          {param.isExceeded && (
+                            <AlertTriangle className="h-4 w-4 text-red-500 ml-auto" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {criticalParams.filter(p =>
+                      CRITICAL_BACTERIAL_PARAMETERS.controlPathogens.some(cp => cp.key === p.key)
+                    ).length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          No hay datos de patógenos de control disponibles
+                        </p>
+                      )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="indicators" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Bug className="h-5 w-5 text-blue-500" />
+                    Indicadores Bacteriológicos (Tabla 1, Anexo I)
+                  </CardTitle>
+                  <CardDescription>
+                    Microorganismos indicadores de calidad microbiológica
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {criticalParams.filter(p =>
+                      CRITICAL_BACTERIAL_PARAMETERS.indicators.some(ind => ind.key === p.key)
+                    ).map((param, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-sm">{param.name}</p>
+                            <Badge
+                              variant={param.isExceeded ? "destructive" : "secondary"}
+                              className="text-xs"
+                              style={{
+                                backgroundColor: param.isExceeded ? SEVERITY_COLORS[param.severity as keyof typeof SEVERITY_COLORS] : undefined
+                              }}
+                            >
+                              {param.severity}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Límite: ≤ {param.limit} {param.unit}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-bold ${param.isExceeded ? 'text-red-600' : 'text-green-600'}`}>
+                            {param.value} {param.unit}
+                          </p>
+                          {param.isExceeded && (
+                            <AlertTriangle className="h-4 w-4 text-red-500 ml-auto" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {criticalParams.filter(p =>
+                      CRITICAL_BACTERIAL_PARAMETERS.indicators.some(ind => ind.key === p.key)
+                    ).length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          No hay datos de indicadores bacteriológicos disponibles
+                        </p>
+                      )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="trends" className="space-y-4">
+              {trendData.length > 0 && (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Tendencia de Patógenos Críticos</CardTitle>
+                      <CardDescription>Últimas 10 mediciones</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={trendData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="date" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="2 2" label="Límite Crítico" />
+                          <Line type="monotone" dataKey="ecoli" stroke="#dc2626" strokeWidth={3} name="E. coli (MUY GRAVE)" />
+                          <Line type="monotone" dataKey="enterococci" stroke="#dc2626" strokeWidth={3} name="Enterococos (MUY GRAVE)" />
+                          <Line type="monotone" dataKey="coliforms" stroke="#f59e0b" strokeWidth={2} name="Coliformes (INDICADOR)" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Tendencia de Control ETAP</CardTitle>
+                      <CardDescription>Últimas 10 mediciones</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={trendData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="date" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="2 2" label="Límite Clostridium" />
+                          <ReferenceLine y={100} stroke="#ef4444" strokeDasharray="2 2" label="Límite Legionella" />
+                          <Bar dataKey="clostridium" fill="#ef4444" name="Clostridium perfringens" />
+                          <Bar dataKey="legionella" fill="#f59e0b" name="Legionella spp." />
+                          <Bar dataKey="pseudomonas" fill="#8b5cf6" name="Pseudomonas" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </>
+      )}
     </div>
   );
 }

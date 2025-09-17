@@ -22,7 +22,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
-import { formatDate, getRelativeTime } from '@/lib/data/utils';
+import { getRelativeTime } from '@/lib/data/utils';
 import { Alert } from '@/types';
 
 interface AppHeaderProps {
@@ -36,12 +36,12 @@ interface AppHeaderProps {
   isRefreshing?: boolean;
 }
 
-export function AppHeader({ 
-  title, 
-  breadcrumbs = [], 
-  alerts = [], 
+export function AppHeader({
+  title,
+  breadcrumbs = [],
+  alerts = [],
   onRefresh,
-  isRefreshing = false 
+  isRefreshing = false
 }: AppHeaderProps) {
   const activeAlerts = alerts.filter(alert => alert.status !== 'resolved');
   const criticalAlerts = activeAlerts.filter(alert => alert.severity === 'critical');
@@ -57,7 +57,7 @@ export function AppHeader({
       <div className="flex items-center gap-2 px-4">
         <SidebarTrigger className="-ml-1" />
         <Separator orientation="vertical" className="mr-2 h-4" />
-        
+
         {/* Breadcrumbs */}
         <Breadcrumb>
           <BreadcrumbList>
@@ -120,7 +120,7 @@ export function AppHeader({
             <Button variant="outline" size="icon" className="h-8 w-8 relative">
               <Bell className="h-4 w-4" />
               {activeAlerts.length > 0 && (
-                <Badge 
+                <Badge
                   variant={criticalAlerts.length > 0 ? "destructive" : "secondary"}
                   className="absolute -top-2 -right-2 h-5 w-5 p-0 text-xs"
                 >
@@ -139,7 +139,7 @@ export function AppHeader({
               )}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            
+
             {activeAlerts.length === 0 ? (
               <DropdownMenuItem disabled>
                 <div className="flex flex-col items-center py-4 text-center">
@@ -154,15 +154,15 @@ export function AppHeader({
                 {activeAlerts.slice(0, 5).map((alert) => (
                   <DropdownMenuItem key={alert.id} className="flex flex-col items-start p-3">
                     <div className="flex items-center gap-2 w-full">
-                      <Badge 
-                        variant={alert.severity === 'critical' ? 'destructive' : 
-                                alert.severity === 'high' ? 'destructive' :
-                                alert.severity === 'medium' ? 'default' : 'secondary'}
+                      <Badge
+                        variant={alert.severity === 'critical' ? 'destructive' :
+                          alert.severity === 'high' ? 'destructive' :
+                            alert.severity === 'medium' ? 'default' : 'secondary'}
                         className="text-xs"
                       >
                         {alert.severity === 'critical' ? 'Crítica' :
-                         alert.severity === 'high' ? 'Alta' :
-                         alert.severity === 'medium' ? 'Media' : 'Baja'}
+                          alert.severity === 'high' ? 'Alta' :
+                            alert.severity === 'medium' ? 'Media' : 'Baja'}
                       </Badge>
                       <span className="text-xs text-muted-foreground ml-auto">
                         {getRelativeTime(alert.createdAt)}
@@ -176,7 +176,7 @@ export function AppHeader({
                     </p>
                   </DropdownMenuItem>
                 ))}
-                
+
                 {activeAlerts.length > 5 && (
                   <>
                     <DropdownMenuSeparator />

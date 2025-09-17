@@ -30,7 +30,6 @@ import {
   AlertTriangle,
   CheckCircle,
   BarChart3,
-  PieChart as PieChartIcon,
   FileSpreadsheet,
   Mail
 } from 'lucide-react';
@@ -332,7 +331,7 @@ export default function ReportsPage() {
                           />
                           <YAxis />
                           <Tooltip
-                            formatter={(value: number, name: string) => [`${value} muestras`, 'Cantidad']}
+                            formatter={(value: number) => [`${value} muestras`, 'Cantidad']}
                             labelFormatter={(label) => getQualityText(label)}
                           />
                           <Bar

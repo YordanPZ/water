@@ -176,6 +176,51 @@ export function getSamplesByFaucet(faucetId: string) {
   return MOCK_SAMPLES.filter(sample => sample.faucetId === faucetId);
 }
 
+// Nueva función: agregar una muestra manualmente (p.ej. desde PDF)
+export function addSample(partial: Partial<WaterSample> & Pick<WaterSample, 'faucetId' | 'chemicalParameters' | 'bacteriologicalParameters'>): WaterSample {
+  // Obtener faucet
+  const faucet = MOCK_FAUCETS.find(f => f.id === partial.faucetId);
+  if (!faucet) {
+    throw new Error('Faucet no encontrado para agregar la muestra');
+  }
+
+  const collectionDate = partial.collectionDate ?? new Date();
+  const analysisDate = partial.analysisDate ?? new Date(collectionDate.getTime() + 24 * 60 * 60 * 1000);
+
+  // Calcular calidad y cumplimiento
+  const qualityRating = determineQualityRating(partial.chemicalParameters, partial.bacteriologicalParameters);
+  const complianceStatus = qualityRating === 'unacceptable' ? 'non_compliant' : 'compliant';
+
+  // Generar ID y código si faltan
+  const idSuffix = `${collectionDate.getFullYear()}${(collectionDate.getMonth() + 1).toString().padStart(2, '0')}${collectionDate.getDate().toString().padStart(2, '0')}-${(MOCK_SAMPLES.length + 1).toString().padStart(2, '0')}`;
+  const id = partial.id ?? `sample-${faucet.id}-${Date.now().toString(36)}`;
+  const sampleCode = partial.sampleCode ?? `${faucet.code}-${idSuffix}`;
+
+  const sample: WaterSample = {
+    id,
+    sampleCode,
+    faucetId: faucet.id,
+    faucet,
+    collectionDate,
+    collectionTime: partial.collectionTime ?? `${8 + Math.floor(Math.random() * 8)}:${Math.floor(Math.random() * 60).toString().padStart(2, '0')}`,
+    collectedBy: partial.collectedBy ?? 'Carga de reporte',
+    analysisDate,
+    laboratoryId: partial.laboratoryId ?? 'lab-001',
+    chemicalParameters: partial.chemicalParameters,
+    bacteriologicalParameters: partial.bacteriologicalParameters,
+    status: 'completed',
+    qualityRating,
+    complianceStatus,
+    observations: partial.observations
+  };
+
+  // Insertar y ordenar
+  MOCK_SAMPLES.push(sample);
+  MOCK_SAMPLES.sort((a, b) => b.collectionDate.getTime() - a.collectionDate.getTime());
+
+  return sample;
+}
+
 // Función para obtener muestras por rango de fechas
 export function getSamplesByDateRange(startDate: Date, endDate: Date) {
   return MOCK_SAMPLES.filter(sample => 

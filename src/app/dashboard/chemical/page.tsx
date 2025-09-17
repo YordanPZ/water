@@ -23,7 +23,9 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  ReferenceLine
+  ReferenceLine,
+  ScatterChart,
+  Scatter
 } from 'recharts';
 import {
   TestTube,
@@ -32,106 +34,186 @@ import {
   CheckCircle,
   Download,
   Filter,
-  Calendar
+  Droplets,
+  Shield,
+  Activity,
+  Zap
 } from 'lucide-react';
 import {
-  getChemicalSamples,
-  getChemicalTrendData,
-  getChemicalParameterStats,
   formatDate,
   getQualityColor,
-  getQualityText
+  getQualityText,
+  getFaucets,
+  getSamplesByFaucet,
+  getRelativeTime
 } from '@/lib/data';
-import { WaterSample, ChemicalParameters, QualityGrade } from '@/types';
-import { QUALITY_LIMITS } from '@/types/quality-limits';
+import { WaterSample, ChemicalParameters, QualityGrade, Faucet } from '@/types';
 
 type TimeRange = '7d' | '30d' | '90d' | '1y';
-type ParameterType = 'ph' | 'turbidity' | 'chlorine' | 'conductivity' | 'hardness' | 'alkalinity';
 
-const PARAMETER_LABELS: Record<ParameterType, string> = {
-  ph: 'pH',
-  turbidity: 'Turbiedad (NTU)',
-  chlorine: 'Cloro Residual (mg/L)',
-  conductivity: 'Conductividad (μS/cm)',
-  hardness: 'Dureza Total (mg/L CaCO₃)',
-  alkalinity: 'Alcalinidad (mg/L CaCO₃)'
+// Parámetros químicos críticos según el reglamento
+const CRITICAL_CHEMICAL_PARAMETERS = {
+  // Metales pesados (Tabla 2, Anexo I) - MUY GRAVE
+  heavyMetals: [
+    { key: 'lead', name: 'Plomo', limit: 5.0, unit: 'μg/L', severity: 'MUY GRAVE', color: '#dc2626' },
+    { key: 'chromium', name: 'Cromo total', limit: 25, unit: 'μg/L', severity: 'MUY GRAVE', color: '#dc2626' },
+    { key: 'arsenic', name: 'Arsénico', limit: 10, unit: 'μg/L', severity: 'GRAVE', color: '#ef4444' },
+    { key: 'cadmium', name: 'Cadmio', limit: 5.0, unit: 'μg/L', severity: 'GRAVE', color: '#ef4444' },
+    { key: 'mercury', name: 'Mercurio', limit: 1.0, unit: 'μg/L', severity: 'GRAVE', color: '#ef4444' },
+    { key: 'nickel', name: 'Níquel', limit: 20, unit: 'μg/L', severity: 'GRAVE', color: '#ef4444' },
+    { key: 'copper', name: 'Cobre', limit: 2000, unit: 'μg/L', severity: 'MODERADO', color: '#f59e0b' },
+    { key: 'iron', name: 'Hierro', limit: 200, unit: 'μg/L', severity: 'MODERADO', color: '#f59e0b' },
+  ],
+  // Indicadores de calidad (Tabla 3, Anexo I)
+  qualityIndicators: [
+    { key: 'pH', name: 'pH', minLimit: 6.5, maxLimit: 9.5, unit: '', severity: 'INDICADOR', color: '#3b82f6' },
+    { key: 'turbidity', name: 'Turbidez', limit: 4.0, unit: 'UNF', severity: 'INDICADOR', color: '#f59e0b' },
+    { key: 'freeChlorine', name: 'Cloro libre residual', limit: 1.0, unit: 'mg/L', severity: 'INDICADOR', color: '#10b981' },
+    { key: 'totalDissolvedSolids', name: 'Sólidos disueltos totales', limit: 1000, unit: 'mg/L', severity: 'LEVE', color: '#6b7280' },
+    { key: 'totalHardness', name: 'Dureza total', limit: 300, unit: 'mg/L CaCO₃', severity: 'LEVE', color: '#8b5cf6' },
+    { key: 'conductivity', name: 'Conductividad', limit: 1000, unit: 'μS/cm', severity: 'LEVE', color: '#06b6d4' },
+  ]
 };
 
-const PARAMETER_COLORS: Record<ParameterType, string> = {
-  ph: '#3b82f6',
-  turbidity: '#f59e0b',
-  chlorine: '#10b981',
-  conductivity: '#8b5cf6',
-  hardness: '#ef4444',
-  alkalinity: '#06b6d4'
+const SEVERITY_COLORS = {
+  'MUY GRAVE': '#dc2626',
+  'GRAVE': '#ef4444',
+  'MODERADO': '#f59e0b',
+  'LEVE': '#3b82f6',
+  'INDICADOR': '#6b7280'
 };
+
+interface CriticalParameter {
+  key: string;
+  name: string;
+  limit?: number;
+  minLimit?: number;
+  maxLimit?: number;
+  unit: string;
+  severity: string;
+  color: string;
+  value: number;
+  isExceeded: boolean;
+  riskLevel: string;
+}
+
+interface TrendDataPoint {
+  date: string;
+  pH: number;
+  turbidity: number;
+  chlorine: number;
+  lead?: number;
+  chromium?: number;
+  arsenic?: number;
+}
 
 export default function ChemicalAnalysisPage() {
-  const [samples, setSamples] = useState<WaterSample[]>([]);
-  const [trendData, setTrendData] = useState<Array<{date: string; [key: string]: string | number}>>([]);
-  const [stats, setStats] = useState<Array<{parameter: string; average: number; minimum: number; maximum: number; sampleCount: number}> | null>(null);
-  const [selectedParameter, setSelectedParameter] = useState<ParameterType>('ph');
+  const [selectedFaucet, setSelectedFaucet] = useState<string>('');
+  const [faucets, setFaucets] = useState<Faucet[]>([]);
+  const [faucetSamples, setFaucetSamples] = useState<WaterSample[]>([]);
+  const [criticalParams, setCriticalParams] = useState<CriticalParameter[]>([]);
+  const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
-  const [selectedLocation, setSelectedLocation] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState<'heavyMetals' | 'qualityIndicators'>('qualityIndicators');
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
-      
+
       // Simular carga de datos
       await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const chemicalSamples = getChemicalSamples();
-      setSamples(chemicalSamples.slice(0, 20)); // Mostrar las 20 más recientes
-      setTrendData(getChemicalTrendData());
-      setStats(getChemicalParameterStats());
-      
+
+      const allFaucets = getFaucets();
+      setFaucets(allFaucets);
+
+      // Seleccionar el primer grifo activo por defecto
+      const activeFaucets = allFaucets.filter(f => f.status === 'active');
+      if (activeFaucets.length > 0 && !selectedFaucet) {
+        setSelectedFaucet(activeFaucets[0].id);
+      }
+
       setIsLoading(false);
     };
 
     loadData();
-  }, [timeRange, selectedLocation]);
+  }, []);
 
-  const getParameterValue = (parameters: ChemicalParameters, param: ParameterType): number => {
-    switch (param) {
-      case 'ph': return parameters.pH;
-      case 'turbidity': return parameters.turbidity;
-      case 'chlorine': return parameters.freeChlorine;
-      case 'conductivity': return parameters.conductivity;
-      case 'hardness': return parameters.totalHardness;
-      case 'alkalinity': return parameters.totalDissolvedSolids;
-      default: return 0;
+  useEffect(() => {
+    if (selectedFaucet) {
+      loadFaucetData(selectedFaucet);
+    }
+  }, [selectedFaucet, timeRange]);
+
+  const loadFaucetData = (faucetId: string) => {
+    const samples = getSamplesByFaucet(faucetId);
+    setFaucetSamples(samples);
+
+    // Analizar parámetros críticos de la última muestra
+    if (samples.length > 0) {
+      const latestSample = samples[samples.length - 1];
+      const critical = analyzeCriticalChemicalParameters(latestSample);
+      setCriticalParams(critical);
+
+      // Generar datos de tendencia
+      const trend = generateChemicalTrendData(samples.slice(-10));
+      setTrendData(trend);
+    } else {
+      setCriticalParams([]);
+      setTrendData([]);
     }
   };
 
-  const getParameterLimit = (param: ParameterType): { min?: number; max?: number } => {
-    const parameterMap: Record<ParameterType, string> = {
-      'ph': 'pH',
-      'turbidity': 'turbidity',
-      'chlorine': 'freeChlorine',
-      'conductivity': 'conductivity',
-      'hardness': 'totalHardness',
-      'alkalinity': 'alkalinity'
-    };
-    
-    const limit = QUALITY_LIMITS.find(l => l.parameter === parameterMap[param]);
-    if (!limit) return {};
-    
-    return {
-      min: limit.minValue,
-      max: limit.maxValue
-    };
+  const analyzeCriticalChemicalParameters = (sample: WaterSample) => {
+    const results: CriticalParameter[] = [];
+    const allParams = [...CRITICAL_CHEMICAL_PARAMETERS.heavyMetals, ...CRITICAL_CHEMICAL_PARAMETERS.qualityIndicators];
+
+    allParams.forEach(param => {
+      const value = (sample.chemicalParameters as unknown as Record<string, number>)[param.key];
+      if (value !== undefined) {
+        let isExceeded = false;
+
+        if (param.key === 'pH') {
+          const pHParam = param as { minLimit: number; maxLimit: number };
+          isExceeded = value < pHParam.minLimit || value > pHParam.maxLimit;
+        } else {
+          const limitParam = param as { limit: number };
+          isExceeded = value > limitParam.limit;
+        }
+
+        results.push({
+          ...param,
+          value,
+          isExceeded,
+          riskLevel: isExceeded ? param.severity : 'NORMAL'
+        });
+      }
+    });
+
+    return results;
   };
 
-  const chartData = samples.map(sample => ({
-    date: formatDate(sample.collectionDate, 'short'),
-    value: getParameterValue(sample.chemicalParameters, selectedParameter),
-    location: sample.faucet.location.name,
-    quality: sample.qualityRating as QualityGrade
-  }));
+  const generateChemicalTrendData = (samples: WaterSample[]) => {
+    return samples.map(sample => ({
+      date: new Date(sample.collectionDate).toLocaleDateString('es-CO', { month: 'short', day: 'numeric' }),
+      pH: sample.chemicalParameters.pH,
+      turbidity: sample.chemicalParameters.turbidity,
+      chlorine: sample.chemicalParameters.freeChlorine,
+      lead: sample.chemicalParameters.lead * 1000, // Convertir a μg/L
+      chromium: sample.chemicalParameters.chromium * 1000, // Convertir a μg/L
+      arsenic: sample.chemicalParameters.arsenic * 1000, // Convertir a μg/L
+    }));
+  };
 
-  const limits = getParameterLimit(selectedParameter);
+  const selectedFaucetData = faucets.find(f => f.id === selectedFaucet);
+  const criticalCount = criticalParams.filter(p => p.isExceeded).length;
+  const totalCritical = criticalParams.length;
+  const heavyMetalsCount = criticalParams.filter(p =>
+    CRITICAL_CHEMICAL_PARAMETERS.heavyMetals.some(hm => hm.key === p.key) && p.isExceeded
+  ).length;
+  const indicatorsCount = criticalParams.filter(p =>
+    CRITICAL_CHEMICAL_PARAMETERS.qualityIndicators.some(qi => qi.key === p.key) && p.isExceeded
+  ).length;
 
   if (isLoading) {
     return (
@@ -143,306 +225,310 @@ export default function ChemicalAnalysisPage() {
 
   return (
     <div className="space-y-6">
-      {/* Controles */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Análisis Químicos</h1>
-          <p className="text-muted-foreground">
-            Monitoreo de parámetros químicos del agua potable
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Select value={timeRange} onValueChange={(value: TimeRange) => setTimeRange(value)}>
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="7d">7 días</SelectItem>
-              <SelectItem value="30d">30 días</SelectItem>
-              <SelectItem value="90d">90 días</SelectItem>
-              <SelectItem value="1y">1 año</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" size="sm">
-            <Filter className="h-4 w-4 mr-2" />
-            Filtros
-          </Button>
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" />
-            Exportar
-          </Button>
-        </div>
-      </div>
-
-      {/* Estadísticas Rápidas */}
-      {stats && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Muestras Analizadas
+      {/* Selector de Grifo */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <TestTube className="h-5 w-5" />
+                Análisis Químicos por Grifo
               </CardTitle>
-              <TestTube className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{samples.length}</div>
-              <p className="text-xs text-muted-foreground">
-                Muestras químicas analizadas
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Cumplimiento
-              </CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{Math.round((samples.filter(s => s.complianceStatus === 'compliant').length / samples.length) * 100)}%</div>
-              <p className="text-xs text-muted-foreground">
-                {samples.filter(s => s.complianceStatus === 'compliant').length} de {samples.length} muestras
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Parámetros Críticos
-              </CardTitle>
-              <AlertTriangle className="h-4 w-4 text-red-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats ? stats.filter(s => s.parameter === 'pH' || s.parameter === 'freeChlorine').length : 0}</div>
-              <p className="text-xs text-muted-foreground">
-                Parámetros críticos monitoreados
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Tendencia
-              </CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">+5.2%</div>
-              <p className="text-xs text-muted-foreground">
-                Mejora vs período anterior
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Gráficos */}
-      <Tabs defaultValue="trends" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="trends">Tendencias</TabsTrigger>
-          <TabsTrigger value="comparison">Comparación</TabsTrigger>
-          <TabsTrigger value="distribution">Distribución</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="trends" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Tendencia de Parámetros Químicos</CardTitle>
-                  <CardDescription>
-                    Evolución temporal de {PARAMETER_LABELS[selectedParameter]}
-                  </CardDescription>
-                </div>
-                <Select 
-                  value={selectedParameter} 
-                  onValueChange={(value: ParameterType) => setSelectedParameter(value)}
-                >
-                  <SelectTrigger className="w-48">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(PARAMETER_LABELS).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis />
-                    <Tooltip 
-                      formatter={(value: number) => [
-                        `${value} ${selectedParameter === 'ph' ? '' : 
-                          selectedParameter === 'turbidity' ? 'NTU' :
-                          selectedParameter === 'chlorine' ? 'mg/L' :
-                          selectedParameter === 'conductivity' ? 'μS/cm' :
-                          'mg/L CaCO₃'}`,
-                        PARAMETER_LABELS[selectedParameter]
-                      ]}
-                      labelFormatter={(label) => `Fecha: ${label}`}
-                    />
-                    <Legend />
-                    <Line 
-                      type="monotone" 
-                      dataKey="value" 
-                      stroke={PARAMETER_COLORS[selectedParameter]}
-                      strokeWidth={2}
-                      dot={{ fill: PARAMETER_COLORS[selectedParameter], strokeWidth: 2, r: 4 }}
-                      name={PARAMETER_LABELS[selectedParameter]}
-                    />
-                    {limits.min && (
-                      <ReferenceLine 
-                        y={limits.min} 
-                        stroke="#ef4444" 
-                        strokeDasharray="5 5"
-                        label={{ value: "Límite mínimo", position: "top" }}
-                      />
-                    )}
-                    {limits.max && (
-                      <ReferenceLine 
-                        y={limits.max} 
-                        stroke="#ef4444" 
-                        strokeDasharray="5 5"
-                        label={{ value: "Límite máximo", position: "top" }}
-                      />
-                    )}
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="comparison" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Comparación por Ubicación</CardTitle>
               <CardDescription>
-                Valores promedio de {PARAMETER_LABELS[selectedParameter]} por ubicación
+                Monitoreo de parámetros químicos críticos según el reglamento técnico
               </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData.slice(0, 10)}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="location" angle={-45} textAnchor="end" height={80} />
-                    <YAxis />
-                    <Tooltip 
-                      formatter={(value: number) => [
-                        `${value} ${selectedParameter === 'ph' ? '' : 
-                          selectedParameter === 'turbidity' ? 'NTU' :
-                          selectedParameter === 'chlorine' ? 'mg/L' :
-                          selectedParameter === 'conductivity' ? 'μS/cm' :
-                          'mg/L CaCO₃'}`,
-                        PARAMETER_LABELS[selectedParameter]
-                      ]}
-                    />
-                    <Legend />
-                    <Bar 
-                      dataKey="value" 
-                      fill={PARAMETER_COLORS[selectedParameter]}
-                      name={PARAMETER_LABELS[selectedParameter]}
-                    />
-                    {limits.min && (
-                      <ReferenceLine 
-                        y={limits.min} 
-                        stroke="#ef4444" 
-                        strokeDasharray="5 5"
-                      />
-                    )}
-                    {limits.max && (
-                      <ReferenceLine 
-                        y={limits.max} 
-                        stroke="#ef4444" 
-                        strokeDasharray="5 5"
-                      />
-                    )}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </div>
+            <div className="flex gap-2">
+              <Select value={selectedFaucet} onValueChange={setSelectedFaucet}>
+                <SelectTrigger className="w-[300px]">
+                  <SelectValue placeholder="Seleccionar grifo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {faucets.filter(f => f.status === 'active').map((faucet) => (
+                    <SelectItem key={faucet.id} value={faucet.id}>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${faucet.status === 'active' ? 'bg-green-500' :
+                          faucet.status === 'maintenance' ? 'bg-yellow-500' : 'bg-red-500'
+                          }`} />
+                        {faucet.name} ({faucet.code})
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={timeRange} onValueChange={(value: TimeRange) => setTimeRange(value)}>
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7d">7 días</SelectItem>
+                  <SelectItem value="30d">30 días</SelectItem>
+                  <SelectItem value="90d">90 días</SelectItem>
+                  <SelectItem value="1y">1 año</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm">
+                <Download className="h-4 w-4 mr-2" />
+                Exportar
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
 
-        <TabsContent value="distribution" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
+      {selectedFaucetData && (
+        <>
+          {/* Estadísticas del Grifo */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card>
-              <CardHeader>
-                <CardTitle>Distribución de Calidad</CardTitle>
-                <CardDescription>
-                  Clasificación de muestras por calidad
-                </CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Estado del Grifo</CardTitle>
+                <Activity className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {(['excellent', 'good', 'acceptable', 'poor'] as QualityGrade[]).map((quality) => {
-                    const count = samples.filter(s => s.qualityRating === quality).length;
-                    const percentage = Math.round((count / samples.length) * 100);
-                    return (
-                      <div key={quality} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div 
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: getQualityColor(quality) }}
-                          />
-                          <span className="text-sm">{getQualityText(quality)}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{count}</span>
-                          <span className="text-xs text-muted-foreground">({percentage}%)</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full ${selectedFaucetData.status === 'active' ? 'bg-green-500' :
+                    selectedFaucetData.status === 'maintenance' ? 'bg-yellow-500' : 'bg-red-500'
+                    }`} />
+                  <span className="text-lg font-bold capitalize">
+                    {selectedFaucetData.status === 'active' ? 'Activo' :
+                      selectedFaucetData.status === 'maintenance' ? 'Mantenimiento' : 'Fuera de Servicio'}
+                  </span>
                 </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {selectedFaucetData.location.building} - {selectedFaucetData.location.floor}
+                </p>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Muestras Recientes</CardTitle>
-                <CardDescription>
-                  Últimos análisis realizados
-                </CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Muestras Químicas</CardTitle>
+                <TestTube className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {samples.slice(0, 5).map((sample) => (
-                    <div key={sample.id} className="flex items-center justify-between p-2 border rounded">
-                      <div>
-                        <p className="text-sm font-medium">
-                          {sample.faucet.location.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDate(sample.collectionDate)}
-                        </p>
-                      </div>
-                      <Badge 
-                        style={{ 
-                          backgroundColor: getQualityColor(sample.qualityRating),
-                          color: 'white'
-                        }}
-                      >
-                        {getQualityText(sample.qualityRating)}
-                      </Badge>
-                    </div>
-                  ))}
+                <div className="text-2xl font-bold">{faucetSamples.length}</div>
+                <p className="text-xs text-muted-foreground">
+                  Última: {faucetSamples.length > 0 ?
+                    getRelativeTime(faucetSamples[faucetSamples.length - 1].collectionDate) :
+                    'Sin datos'}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Parámetros Críticos</CardTitle>
+                <Shield className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  <span className={criticalCount > 0 ? 'text-red-600' : 'text-green-600'}>
+                    {criticalCount}
+                  </span>
+                  <span className="text-sm text-muted-foreground">/{totalCritical}</span>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  {criticalCount > 0 ? 'Fuera de límites' : 'Dentro de límites'}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Riesgo Químico</CardTitle>
+                <Zap className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold ${heavyMetalsCount > 0 ? 'text-red-600' :
+                  indicatorsCount > 2 ? 'text-yellow-600' : 'text-green-600'
+                  }`}>
+                  {heavyMetalsCount > 0 ? 'ALTO' :
+                    indicatorsCount > 2 ? 'MEDIO' : 'BAJO'}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Metales: {heavyMetalsCount} | Indicadores: {indicatorsCount}
+                </p>
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
-      </Tabs>
+
+          {/* Análisis Detallado por Categorías */}
+          <Tabs defaultValue="qualityIndicators" className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="qualityIndicators">Indicadores de Calidad</TabsTrigger>
+              <TabsTrigger value="heavyMetals">Metales Pesados</TabsTrigger>
+              <TabsTrigger value="trends">Tendencias</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="qualityIndicators" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CheckCircle className="h-5 w-5" />
+                    Indicadores de Calidad (Tabla 3, Anexo I)
+                  </CardTitle>
+                  <CardDescription>
+                    Parámetros básicos de calidad del agua potable
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {criticalParams.filter(p =>
+                      CRITICAL_CHEMICAL_PARAMETERS.qualityIndicators.some(qi => qi.key === p.key)
+                    ).map((param, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-sm">{param.name}</p>
+                            <Badge
+                              variant={param.isExceeded ? "destructive" : "secondary"}
+                              className="text-xs"
+                            >
+                              {param.severity}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {param.key === 'pH' ?
+                              `Rango: ${param.minLimit} - ${param.maxLimit}` :
+                              `Límite: ≤ ${param.limit} ${param.unit}`
+                            }
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-bold ${param.isExceeded ? 'text-red-600' : 'text-green-600'}`}>
+                            {param.value.toFixed(2)} {param.unit}
+                          </p>
+                          {param.isExceeded && (
+                            <AlertTriangle className="h-4 w-4 text-red-500 ml-auto" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {criticalParams.filter(p =>
+                      CRITICAL_CHEMICAL_PARAMETERS.qualityIndicators.some(qi => qi.key === p.key)
+                    ).length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          No hay datos de indicadores de calidad disponibles
+                        </p>
+                      )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="heavyMetals" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-red-500" />
+                    Metales Pesados (Tabla 2, Anexo I)
+                  </CardTitle>
+                  <CardDescription>
+                    Parámetros críticos con alta toxicidad
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {criticalParams.filter(p =>
+                      CRITICAL_CHEMICAL_PARAMETERS.heavyMetals.some(hm => hm.key === p.key)
+                    ).map((param, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-sm">{param.name}</p>
+                            <Badge
+                              variant={param.isExceeded ? "destructive" : "secondary"}
+                              className="text-xs"
+                              style={{
+                                backgroundColor: param.isExceeded ? SEVERITY_COLORS[param.severity as keyof typeof SEVERITY_COLORS] : undefined
+                              }}
+                            >
+                              {param.severity}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Límite: ≤ {param.limit} {param.unit}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-bold ${param.isExceeded ? 'text-red-600' : 'text-green-600'}`}>
+                            {param.value.toFixed(3)} {param.unit}
+                          </p>
+                          {param.isExceeded && (
+                            <AlertTriangle className="h-4 w-4 text-red-500 ml-auto" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {criticalParams.filter(p =>
+                      CRITICAL_CHEMICAL_PARAMETERS.heavyMetals.some(hm => hm.key === p.key)
+                    ).length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          No hay datos de metales pesados disponibles
+                        </p>
+                      )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="trends" className="space-y-4">
+              {trendData.length > 0 && (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Tendencia de Indicadores</CardTitle>
+                      <CardDescription>Últimas 10 mediciones</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={trendData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="date" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <ReferenceLine y={6.5} stroke="#ef4444" strokeDasharray="2 2" label="pH Min" />
+                          <ReferenceLine y={9.5} stroke="#ef4444" strokeDasharray="2 2" label="pH Max" />
+                          <ReferenceLine y={4.0} stroke="#f59e0b" strokeDasharray="2 2" label="Turbidez Límite" />
+                          <Line type="monotone" dataKey="pH" stroke="#3b82f6" strokeWidth={2} name="pH" />
+                          <Line type="monotone" dataKey="turbidity" stroke="#f59e0b" strokeWidth={2} name="Turbidez (NTU)" />
+                          <Line type="monotone" dataKey="chlorine" stroke="#10b981" strokeWidth={2} name="Cloro (mg/L)" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Tendencia de Metales Pesados</CardTitle>
+                      <CardDescription>Últimas 10 mediciones (μg/L)</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={trendData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="date" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <ReferenceLine y={5} stroke="#dc2626" strokeDasharray="2 2" label="Plomo Límite" />
+                          <ReferenceLine y={25} stroke="#dc2626" strokeDasharray="2 2" label="Cromo Límite" />
+                          <ReferenceLine y={10} stroke="#ef4444" strokeDasharray="2 2" label="Arsénico Límite" />
+                          <Line type="monotone" dataKey="lead" stroke="#dc2626" strokeWidth={2} name="Plomo" />
+                          <Line type="monotone" dataKey="chromium" stroke="#ef4444" strokeWidth={2} name="Cromo" />
+                          <Line type="monotone" dataKey="arsenic" stroke="#f59e0b" strokeWidth={2} name="Arsénico" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </>
+      )}
     </div>
   );
 }

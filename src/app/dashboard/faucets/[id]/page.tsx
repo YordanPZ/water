@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import {
   Select,
   SelectContent,
@@ -24,15 +25,39 @@ import {
   Area,
 } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from '@/components/ui/chart';
-import { ArrowLeft, Download, Filter, FlaskConical, Microscope, TestTube2 } from 'lucide-react';
-import { Faucet, WaterSample, QualityGrade, ChemicalParameters } from '@/types';
+import { ArrowLeft, Download, Filter, FlaskConical, Microscope, TestTube2, Upload, FileText, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Faucet, WaterSample, QualityGrade, ChemicalParameters, BacteriologicalParameters } from '@/types';
+
+// Tipos para el modal de revisión
+interface DetectedMeasurement {
+  id: string;
+  parameter: string;
+  value: number | string;
+  unit: string;
+  limit: number;
+  status: 'normal' | 'warning' | 'critical';
+  confidence: number;
+  category: 'chemical' | 'bacteriological';
+}
+
+interface MeasurementMetadata {
+  sampleDate: string;
+  labName: string;
+  technician: string;
+  reportNumber: string;
+  analysisDate: string;
+  notes: string;
+}
 import { QUALITY_LIMITS } from '@/types/quality-limits';
+import { MeasurementReviewModal } from '@/components/measurement-review-modal';
 import {
   getFaucets,
   getSamplesByFaucet,
   formatDate,
   getQualityColor,
   getQualityText,
+  parseLabReportPdf,
+  addSample,
 } from '@/lib/data';
 
 // Tipos locales para selección de parámetros
@@ -76,6 +101,15 @@ export default function FaucetHistoryPage() {
   const [faucet, setFaucet] = useState<Faucet | null>(null);
   const [samples, setSamples] = useState<WaterSample[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isImporting, setIsImporting] = useState(false);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [uploadMessage, setUploadMessage] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Estados para el modal de revisión de mediciones
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
 
   const [chemParam, setChemParam] = useState<ChemicalParam>('ph');
   const [bactParam, setBactParam] = useState<BactParam>('totalColiforms');
@@ -166,6 +200,240 @@ export default function FaucetHistoryPage() {
     }
   };
 
+  const onUploadClick = () => {
+    setUploadStatus('idle');
+    setUploadMessage('');
+  };
+
+  const handleFileSelect = () => {
+    fileInputRef.current?.click();
+  };
+
+  const buildCompleteParams = (
+    parsed: Awaited<ReturnType<typeof parseLabReportPdf>>
+  ): { chem: ChemicalParameters; bact: BacteriologicalParameters } => {
+    // Valores por defecto razonables
+    const defaultChem: ChemicalParameters = {
+      turbidity: 1.0,
+      color: 5,
+      odor: 1,
+      taste: 1,
+      temperature: 20,
+      pH: 7.2,
+      conductivity: 250,
+      totalDissolvedSolids: 200,
+      totalHardness: 150,
+      chloride: 20,
+      sulfate: 25,
+      nitrate: 1,
+      nitrite: 0.02,
+      ammonia: 0.1,
+      iron: 0.05,
+      manganese: 0.01,
+      copper: 0.2,
+      zinc: 0.1,
+      lead: 0.002,
+      cadmium: 0.0003,
+      chromium: 0.01,
+      mercury: 0.0002,
+      arsenic: 0.002,
+      freeChlorine: 1.0,
+      totalChlorine: 1.2,
+    };
+
+    const pc = parsed.chemicalParameters || {};
+    const chem: ChemicalParameters = {
+      ...defaultChem,
+      pH: pc.pH ?? defaultChem.pH,
+      turbidity: pc.turbidity ?? defaultChem.turbidity,
+      freeChlorine: pc.freeChlorine ?? defaultChem.freeChlorine,
+      conductivity: pc.conductivity ?? defaultChem.conductivity,
+      totalHardness: pc.totalHardness ?? defaultChem.totalHardness,
+      totalDissolvedSolids: pc.totalDissolvedSolids ?? defaultChem.totalDissolvedSolids,
+      chloride: pc.chloride ?? defaultChem.chloride,
+      sulfate: pc.sulfate ?? defaultChem.sulfate,
+      nitrate: pc.nitrate ?? defaultChem.nitrate,
+      nitrite: pc.nitrite ?? defaultChem.nitrite,
+      ammonia: pc.ammonia ?? defaultChem.ammonia,
+      iron: pc.iron ?? defaultChem.iron,
+      manganese: pc.manganese ?? defaultChem.manganese,
+      copper: pc.copper ?? defaultChem.copper,
+      zinc: pc.zinc ?? defaultChem.zinc,
+      lead: pc.lead ?? defaultChem.lead,
+      cadmium: pc.cadmium ?? defaultChem.cadmium,
+      chromium: pc.chromium ?? defaultChem.chromium,
+      mercury: pc.mercury ?? defaultChem.mercury,
+      arsenic: pc.arsenic ?? defaultChem.arsenic,
+      color: pc.color ?? defaultChem.color,
+      odor: pc.odor ?? defaultChem.odor,
+      taste: pc.taste ?? defaultChem.taste,
+      temperature: pc.temperature ?? defaultChem.temperature,
+      totalChlorine: pc.totalChlorine ?? defaultChem.totalChlorine,
+      // Campos opcionales que el informe podría contener
+      fluoride: pc.fluoride,
+      sodium: pc.sodium,
+      nickel: pc.nickel,
+      antimony: pc.antimony,
+      boron: pc.boron,
+      barium: pc.barium,
+      selenium: pc.selenium,
+      uranium: pc.uranium,
+      aluminum: pc.aluminum,
+      totalOrganicCarbon: pc.totalOrganicCarbon,
+      oxidability: pc.oxidability,
+      combinedChlorine: pc.combinedChlorine,
+      trihalomethanesSum: pc.trihalomethanesSum,
+      haloaceticAcidsSum: pc.haloaceticAcidsSum,
+      pahsSum: pc.pahsSum,
+      pfasSum20: pc.pfasSum20,
+      pesticidesSum: pc.pesticidesSum,
+      acrylamide: pc.acrylamide,
+      benzene: pc.benzene,
+      benzoAPyrene: pc.benzoAPyrene,
+      bisphenolA: pc.bisphenolA,
+      bromate: pc.bromate,
+      chlorate: pc.chlorate,
+      chlorite: pc.chlorite,
+      vinylChloride: pc.vinylChloride,
+      dichloroethane1_2: pc.dichloroethane1_2,
+      epichlorohydrin: pc.epichlorohydrin,
+      trichloroethene: pc.trichloroethene,
+      tetrachloroethene: pc.tetrachloroethene,
+    } as ChemicalParameters;
+
+    const defaultBact: BacteriologicalParameters = {
+      totalColiforms: 0,
+      fecalColiforms: 0,
+      escherichiaColi: 0,
+      enterococci: 0,
+      pseudomonasAeruginosa: 0,
+      heterotrophicBacteria: 50,
+    };
+
+    const pb = parsed.bacteriologicalParameters || {};
+    const bact: BacteriologicalParameters = {
+      ...defaultBact,
+      totalColiforms: pb.totalColiforms ?? defaultBact.totalColiforms,
+      fecalColiforms: pb.fecalColiforms ?? defaultBact.fecalColiforms,
+      escherichiaColi: pb.escherichiaColi ?? defaultBact.escherichiaColi,
+      enterococci: pb.enterococci ?? defaultBact.enterococci,
+      pseudomonasAeruginosa: pb.pseudomonasAeruginosa ?? defaultBact.pseudomonasAeruginosa,
+      heterotrophicBacteria: pb.heterotrophicBacteria ?? defaultBact.heterotrophicBacteria,
+      colonyCount22C: pb.colonyCount22C,
+      clostridiumPerfringens: pb.clostridiumPerfringens,
+      legionellaSpp: pb.legionellaSpp,
+      somaticColiphages: pb.somaticColiphages,
+    } as BacteriologicalParameters;
+
+    return { chem, bact };
+  };
+
+  const onFileChange: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !faucetId) return;
+
+    // Guardar el archivo y abrir el modal de revisión
+    setSelectedPdfFile(file);
+    setIsSheetOpen(false); // Cerrar el sheet de carga
+    setIsReviewModalOpen(true); // Abrir el modal de revisión
+
+    // Limpiar el input para poder volver a seleccionar el mismo archivo si se desea
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // Función para manejar el guardado desde el modal de revisión
+  const handleSaveMeasurements = async (detectedMeasurements: DetectedMeasurement[], metadata: MeasurementMetadata) => {
+    if (!faucetId) return;
+
+    try {
+      // Convertir las mediciones detectadas al formato esperado
+      const chemicalParams: Partial<ChemicalParameters> = {};
+      const bacteriologicalParams: Partial<BacteriologicalParameters> = {};
+
+      detectedMeasurements.forEach(measurement => {
+        const value = typeof measurement.value === 'number' ? measurement.value : parseFloat(measurement.value.toString());
+
+        if (measurement.category === 'chemical') {
+          switch (measurement.id) {
+            case 'ph':
+              chemicalParams.pH = value;
+              break;
+            case 'turbidity':
+              chemicalParams.turbidity = value;
+              break;
+            case 'free_chlorine':
+              chemicalParams.freeChlorine = value;
+              break;
+            case 'conductivity':
+              chemicalParams.conductivity = value;
+              break;
+            case 'total_hardness':
+              chemicalParams.totalHardness = value;
+              break;
+            case 'tds':
+              chemicalParams.totalDissolvedSolids = value;
+              break;
+          }
+        } else if (measurement.category === 'bacteriological') {
+          switch (measurement.id) {
+            case 'total_coliforms':
+              bacteriologicalParams.totalColiforms = value;
+              break;
+            case 'fecal_coliforms':
+              bacteriologicalParams.fecalColiforms = value;
+              break;
+            case 'ecoli':
+              bacteriologicalParams.escherichiaColi = value;
+              break;
+            case 'enterococci':
+              bacteriologicalParams.enterococci = value;
+              break;
+          }
+        }
+      });
+
+      const { chem, bact } = buildCompleteParams({
+        chemicalParameters: chemicalParams,
+        bacteriologicalParameters: bacteriologicalParams,
+        collectionDate: new Date(metadata.sampleDate),
+        analysisDate: new Date(metadata.analysisDate),
+        collectedBy: metadata.technician,
+        laboratoryId: 'lab-001',
+        observations: metadata.notes
+      });
+
+      addSample({
+        faucetId,
+        chemicalParameters: chem,
+        bacteriologicalParameters: bact,
+        collectionDate: new Date(metadata.sampleDate),
+        analysisDate: new Date(metadata.analysisDate),
+        collectedBy: metadata.technician,
+        laboratoryId: 'lab-001',
+        observations: metadata.notes,
+      });
+
+      // Actualizar la lista de muestras
+      const s = getSamplesByFaucet(faucetId);
+      s.sort((a, b) => new Date(a.collectionDate).getTime() - new Date(b.collectionDate).getTime());
+      setSamples(s);
+
+      setUploadStatus('success');
+      setUploadMessage(`Muestra cargada exitosamente. Se procesaron ${detectedMeasurements.length} parámetros.`);
+
+      // Mostrar mensaje de éxito temporalmente
+      setTimeout(() => {
+        setUploadStatus('idle');
+        setUploadMessage('');
+      }, 3000);
+
+    } catch (err) {
+      console.error('Error al guardar las mediciones:', err);
+      setUploadStatus('error');
+      setUploadMessage('Error al guardar las mediciones. Inténtalo de nuevo.');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -205,6 +473,115 @@ export default function FaucetHistoryPage() {
           <Button variant="outline" size="sm">
             <Filter className="h-4 w-4 mr-2" /> Filtros
           </Button>
+
+          <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+            <SheetTrigger asChild>
+              <Button variant="secondary" size="sm" onClick={onUploadClick} disabled={isImporting}>
+                <Upload className="h-4 w-4 mr-2" /> Cargar Mediciones
+              </Button>
+            </SheetTrigger>
+            <SheetContent className="w-[400px] sm:w-[540px] p-6">
+              <SheetHeader>
+                <SheetTitle>Cargar Mediciones</SheetTitle>
+                <SheetDescription>
+                  Sube un reporte PDF de laboratorio para extraer automáticamente los datos de análisis.
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="space-y-6 py-4">
+                {/* Área de carga */}
+                <div className="space-y-4">
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+                    <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Selecciona un archivo PDF</p>
+                      <p className="text-xs text-gray-500">
+                        Reportes de laboratorio con análisis químicos y bacteriológicos
+                      </p>
+                    </div>
+                    <Button
+                      onClick={handleFileSelect}
+                      disabled={isImporting}
+                      className="mt-4"
+                      variant="outline"
+                    >
+                      {isImporting ? 'Procesando...' : 'Seleccionar archivo'}
+                    </Button>
+                  </div>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    className="hidden"
+                    onChange={onFileChange}
+                  />
+                </div>
+
+                {/* Estado de carga */}
+                {(isImporting || uploadStatus !== 'idle') && (
+                  <div className="space-y-3">
+                    {isImporting && (
+                      <div className="flex items-center space-x-3">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                        <span className="text-sm text-gray-600">Procesando archivo...</span>
+                      </div>
+                    )}
+
+                    {uploadStatus === 'success' && (
+                      <div className="flex items-start space-x-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="text-sm font-medium text-green-800">¡Carga exitosa!</p>
+                          <p className="text-xs text-green-600 mt-1">{uploadMessage}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {uploadStatus === 'error' && (
+                      <div className="flex items-start space-x-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="text-sm font-medium text-red-800">Error en la carga</p>
+                          <p className="text-xs text-red-600 mt-1">{uploadMessage}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Información sobre el procesamiento */}
+                <div className="space-y-3 text-xs text-gray-500">
+                  <div className="border-t pt-3">
+                    <p className="font-medium mb-2">Parámetros que se extraen automáticamente:</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <p className="font-medium text-gray-700">Químicos:</p>
+                        <ul className="space-y-1">
+                          <li>• pH</li>
+                          <li>• Turbiedad</li>
+                          <li>• Cloro libre</li>
+                          <li>• Conductividad</li>
+                          <li>• Dureza total</li>
+                          <li>• Sólidos disueltos</li>
+                        </ul>
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-700">Bacteriológicos:</p>
+                        <ul className="space-y-1">
+                          <li>• Coliformes totales</li>
+                          <li>• Coliformes fecales</li>
+                          <li>• E. coli</li>
+                          <li>• Enterococos</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </SheetContent>
+          </Sheet>
+
           <Button variant="default" size="sm" onClick={onExportPDF}>
             <Download className="h-4 w-4 mr-2" /> Exportar PDF
           </Button>
@@ -420,6 +797,19 @@ export default function FaucetHistoryPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Modal de revisión de mediciones */}
+      <MeasurementReviewModal
+        isOpen={isReviewModalOpen}
+        onClose={() => {
+          setIsReviewModalOpen(false);
+          setSelectedPdfFile(null);
+        }}
+        onSave={handleSaveMeasurements}
+        pdfFile={selectedPdfFile}
+        faucetId={faucetId || ''}
+        faucetName={faucet?.location.name || 'Grifo desconocido'}
+      />
 
       {/* Estilos de impresión mínimos */}
       <style jsx global>{`

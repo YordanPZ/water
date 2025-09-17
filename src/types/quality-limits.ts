@@ -233,17 +233,86 @@ export const QUALITY_LIMITS: QualityLimits[] = [
     unit: 'UFC/mL',
     category: 'bacteriological',
     criticalLevel: false
+  },
+  
+  // Parámetros radiológicos
+  {
+    parameter: 'alphaTotalActivity',
+    maxValue: 0.1,
+    unit: 'Bq/L',
+    category: 'radiological',
+    criticalLevel: true
+  },
+  {
+    parameter: 'betaRestActivity',
+    maxValue: 1.0,
+    unit: 'Bq/L',
+    category: 'radiological',
+    criticalLevel: true
+  },
+  {
+    parameter: 'radon',
+    maxValue: 100,
+    unit: 'Bq/L',
+    category: 'radiological',
+    criticalLevel: true
+  },
+  {
+    parameter: 'tritium',
+    maxValue: 100,
+    unit: 'Bq/L',
+    category: 'radiological',
+    criticalLevel: true
+  },
+  {
+    parameter: 'indicativeDose',
+    maxValue: 0.1,
+    unit: 'mSv/yr',
+    category: 'radiological',
+    criticalLevel: true
+  },
+
+  // Parámetros operacionales (in situ)
+  {
+    parameter: 'waterTemperature',
+    maxValue: 30,
+    unit: '°C',
+    category: 'operational',
+    criticalLevel: false
+  },
+  {
+    parameter: 'freeChlorineResidual',
+    minValue: 0.3,
+    maxValue: 2.0,
+    unit: 'mg/L',
+    category: 'operational',
+    criticalLevel: true
+  },
+  {
+    parameter: 'combinedChlorineResidual',
+    maxValue: 0.5,
+    unit: 'mg/L',
+    category: 'operational',
+    criticalLevel: false
+  },
+  {
+    parameter: 'langelierIndex',
+    minValue: -0.5,
+    maxValue: 0.5,
+    unit: 'Adimensional',
+    category: 'operational',
+    criticalLevel: false
   }
 ];
 
 // Función para obtener el límite de un parámetro específico
-export function getParameterLimit(parameter: keyof (import('./water-quality').ChemicalParameters & import('./water-quality').BacteriologicalParameters)): QualityLimits | undefined {
+export function getParameterLimit(parameter: keyof (import('./water-quality').ChemicalParameters & import('./water-quality').BacteriologicalParameters & import('./water-quality').RadiologicalParameters & import('./water-quality').OperationalParameters)): QualityLimits | undefined {
   return QUALITY_LIMITS.find(limit => limit.parameter === parameter);
 }
 
 // Función para verificar si un valor está dentro de los límites permitidos
 export function isWithinLimits(
-  parameter: keyof (import('./water-quality').ChemicalParameters & import('./water-quality').BacteriologicalParameters),
+  parameter: keyof (import('./water-quality').ChemicalParameters & import('./water-quality').BacteriologicalParameters & import('./water-quality').RadiologicalParameters & import('./water-quality').OperationalParameters),
   value: number
 ): { compliant: boolean; status: 'normal' | 'warning' | 'critical' } {
   const limit = getParameterLimit(parameter);
@@ -288,5 +357,15 @@ export const PARAMETER_CATEGORIES = {
     name: 'Parámetros Bacteriológicos',
     description: 'Presencia de microorganismos indicadores de contaminación',
     color: '#f59e0b'
+  },
+  radiological: {
+    name: 'Parámetros Radiológicos',
+    description: 'Actividad alfa y beta, radón, tritio y dosis indicativa',
+    color: '#8b5cf6'
+  },
+  operational: {
+    name: 'Parámetros Operacionales',
+    description: 'Mediciones in situ como temperatura, cloro residual e índice de Langelier',
+    color: '#06b6d4'
   }
 };

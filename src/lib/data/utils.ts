@@ -1,9 +1,9 @@
-import { QualityGrade } from '@/types';
+import { QualityGrade, ChemicalParameters, BacteriologicalParameters } from '@/types';
 
 // Formatear fechas
 export function formatDate(date: Date | string, format: 'short' | 'long' | 'time' = 'short'): string {
   const d = typeof date === 'string' ? new Date(date) : date;
-  
+
   switch (format) {
     case 'short':
       return d.toLocaleDateString('es-CO', {
@@ -159,7 +159,7 @@ export function getDaysAgo(date: Date | string): number {
 // Formatear tiempo relativo
 export function getRelativeTime(date: Date | string): string {
   const days = getDaysAgo(date);
-  
+
   if (days === 0) return 'Hoy';
   if (days === 1) return 'Ayer';
   if (days < 7) return `Hace ${days} días`;
@@ -171,7 +171,7 @@ export function getRelativeTime(date: Date | string): string {
     const months = Math.floor(days / 30);
     return months === 1 ? 'Hace 1 mes' : `Hace ${months} meses`;
   }
-  
+
   const years = Math.floor(days / 365);
   return years === 1 ? 'Hace 1 año' : `Hace ${years} años`;
 }
@@ -218,7 +218,7 @@ export function formatUnit(value: number, unit: string, decimals: number = 2): s
 export function getDateRange(period: 'today' | 'week' | 'month' | 'quarter' | 'year'): { start: Date; end: Date } {
   const end = new Date();
   const start = new Date();
-  
+
   switch (period) {
     case 'today':
       start.setHours(0, 0, 0, 0);
@@ -237,8 +237,92 @@ export function getDateRange(period: 'today' | 'week' | 'month' | 'quarter' | 'y
       start.setFullYear(start.getFullYear() - 1);
       break;
   }
-  
+
   return { start, end };
+}
+
+// --- Parseo de informe PDF (dinámico con pdfjs-dist) ---
+export type PdfParsedResult = {
+  chemicalParameters?: Partial<ChemicalParameters>;
+  bacteriologicalParameters?: Partial<BacteriologicalParameters>;
+  collectionDate?: Date;
+  analysisDate?: Date;
+  laboratoryId?: string;
+  collectedBy?: string;
+  observations?: string;
+};
+
+export async function parseLabReportPdf(file: File | Blob): Promise<PdfParsedResult> {
+  try {
+    const pdfjsLib = await import('pdfjs-dist');
+    // Intentar configurar worker desde CDN para evitar problemas de bundler
+    if (pdfjsLib.GlobalWorkerOptions) {
+      const version = pdfjsLib.version || '4.7.76';
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/pdf.worker.min.js`;
+    }
+
+    const data = await file.arrayBuffer();
+    const loadingTask = pdfjsLib.getDocument({ data });
+    const pdf = await loadingTask.promise;
+
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const strings: string[] = content.items.map((item) => (item.str ?? ''));
+      fullText += strings.join('\n') + '\n';
+    }
+
+    const norm = (t: string) => t.replace(/\s+/g, ' ').trim();
+    const findNumber = (labelRegex: RegExp): number | undefined => {
+      const match = fullText.match(labelRegex);
+      if (!match) return undefined;
+      const raw = match[1]?.replace(',', '.');
+      const num = parseFloat(raw);
+      return isNaN(num) ? undefined : num;
+    };
+
+    // Mapear parámetros clave (nombres probables en español)
+    const chem: Partial<ChemicalParameters> = {};
+    const bact: Partial<BacteriologicalParameters> = {};
+
+    chem.pH = findNumber(/pH\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)/i) ?? chem.pH!;
+    chem.turbidity = findNumber(/turbiedad|turbidity\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)/i) ?? chem.turbidity!;
+    chem.freeChlorine = findNumber(/cloro\s*(?:libre|residual)?\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)/i) ?? chem.freeChlorine!;
+    chem.conductivity = findNumber(/conductividad\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)/i) ?? chem.conductivity!;
+    chem.totalHardness = findNumber(/dureza\s*(?:total)?\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)/i) ?? chem.totalHardness!;
+    chem.totalDissolvedSolids = findNumber(/s[óo]lidos\s+disueltos\s+totales|TDS\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)/i) ?? chem.totalDissolvedSolids!;
+
+    bact.totalColiforms = findNumber(/coliformes\s+totales\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)/i) ?? bact.totalColiforms!;
+    bact.fecalColiforms = findNumber(/coliformes\s+fecales\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)/i) ?? bact.fecalColiforms!;
+    bact.escherichiaColi = findNumber(/e\.?\s*coli|escherichia\s*coli\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)/i) ?? bact.escherichiaColi!;
+
+    // Fechas y metadatos
+    const parsed: PdfParsedResult = {};
+    const dateFrom = (re: RegExp): Date | undefined => {
+      const m = fullText.match(re);
+      if (!m) return undefined;
+      const [d, mth, y] = m[1].split(/[\/-]/).map((x: string) => parseInt(x, 10));
+      if (!d || !mth || !y) return undefined;
+      return new Date(y, mth - 1, d);
+    };
+    parsed.collectionDate = dateFrom(/fecha\s+de\s+(?:toma|recolecci[óo]n)\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
+    parsed.analysisDate = dateFrom(/fecha\s+de\s+an[áa]lisis\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
+
+    const lab = fullText.match(/laboratorio\s*(?:id|nombre)?\s*[:\-]?\s*([\w\- ]{3,})/i);
+    if (lab) parsed.laboratoryId = norm(lab[1]).slice(0, 50);
+
+    const coll = fullText.match(/muestreado\s*por|toma\s*por\s*[:\-]?\s*([\w\- ]{3,})/i);
+    if (coll) parsed.collectedBy = norm(coll[1]).slice(0, 50);
+
+    parsed.chemicalParameters = Object.fromEntries(Object.entries(chem).filter(([, v]) => typeof v === 'number')) as Partial<ChemicalParameters>;
+    parsed.bacteriologicalParameters = Object.fromEntries(Object.entries(bact).filter(([, v]) => typeof v === 'number')) as Partial<BacteriologicalParameters>;
+
+    return parsed;
+  } catch (error) {
+    console.warn('No se pudo parsear el PDF con pdfjs-dist, devolviendo resultado vacío', error);
+    return {};
+  }
 }
 
 // Exportar todas las funciones de datos mockeados
