@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { MeasurementReviewModal } from '@/components/measurement-review-modal';
 import {
   MapPin,
   Search,
@@ -33,7 +38,9 @@ import {
   AlertTriangle,
   TestTube,
   Microscope,
-  ExternalLink
+  ExternalLink,
+  Upload,
+  FileText
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -45,12 +52,35 @@ import {
   getQualityText,
   getFaucetStatusColor,
   getFaucetStatusText,
-  getRelativeTime
+  getRelativeTime,
+  parseLabReportPdf,
+  addSample
 } from '@/lib/data';
-import { Faucet, QualityGrade, WaterSample } from '@/types';
+import { Faucet, QualityGrade, WaterSample, ChemicalParameters, BacteriologicalParameters } from '@/types';
 
 type FilterType = 'all' | 'active' | 'maintenance' | 'out_of_service';
 type QualityFilter = 'all' | 'excellent' | 'good' | 'acceptable' | 'poor' | 'unacceptable';
+
+// Tipos para el modal de revisión
+interface DetectedMeasurement {
+  id: string;
+  parameter: string;
+  value: number | string;
+  unit: string;
+  limit: number;
+  status: 'normal' | 'warning' | 'critical';
+  confidence: number;
+  category: 'chemical' | 'bacteriological';
+}
+
+interface MeasurementMetadata {
+  sampleDate: string;
+  labName: string;
+  technician: string;
+  reportNumber: string;
+  analysisDate: string;
+  notes: string;
+}
 
 interface FaucetWithSample extends Faucet {
   latestSample?: WaterSample;
@@ -68,6 +98,14 @@ export default function FaucetListPage() {
   const [sortBy, setSortBy] = useState<'name' | 'status' | 'quality' | 'lastAnalysis'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedFaucetId, setSelectedFaucetId] = useState<string | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [uploadMessage, setUploadMessage] = useState('');
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
 
 

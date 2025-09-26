@@ -59,6 +59,9 @@ import {
   parseLabReportPdf,
   addSample,
 } from '@/lib/data';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
 
 // Tipos locales para selección de parámetros
 // Químicos clave a mostrar (alineados con pages químicas)
@@ -480,45 +483,290 @@ export default function FaucetHistoryPage() {
                 <Upload className="h-4 w-4 mr-2" /> Cargar Mediciones
               </Button>
             </SheetTrigger>
-            <SheetContent className="w-[400px] sm:w-[540px] p-6">
+            <SheetContent className="w-[400px] sm:w-[740px] p-6">
+
               <SheetHeader>
                 <SheetTitle>Cargar Mediciones</SheetTitle>
                 <SheetDescription>
-                  Sube un reporte PDF de laboratorio para extraer automáticamente los datos de análisis.
+                  Sube un reporte PDF de laboratorio o ingresa manualmente los datos de análisis.
                 </SheetDescription>
               </SheetHeader>
 
               <div className="space-y-6 py-4">
-                {/* Área de carga */}
-                <div className="space-y-4">
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
-                    <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium">Selecciona un archivo PDF</p>
-                      <p className="text-xs text-gray-500">
-                        Reportes de laboratorio con análisis químicos y bacteriológicos
-                      </p>
+                <Tabs defaultValue="pdf" className="w-full">
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="pdf">Cargar PDF</TabsTrigger>
+                    <TabsTrigger value="manual">Carga Manual</TabsTrigger>
+                    <TabsTrigger value="insitu">Carga IN-SITU</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="pdf" className="space-y-4 mt-4">
+                    {/* Área de carga de PDF */}
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+                      <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium">Selecciona un archivo PDF</p>
+                        <p className="text-xs text-gray-500">
+                          Reportes de laboratorio con análisis químicos y bacteriológicos
+                        </p>
+                      </div>
+                      <Button
+                        onClick={handleFileSelect}
+                        disabled={isImporting}
+                        className="mt-4"
+                        variant="outline"
+                      >
+                        {isImporting ? 'Procesando...' : 'Seleccionar archivo'}
+                      </Button>
                     </div>
-                    <Button
-                      onClick={handleFileSelect}
-                      disabled={isImporting}
-                      className="mt-4"
-                      variant="outline"
-                    >
-                      {isImporting ? 'Procesando...' : 'Seleccionar archivo'}
-                    </Button>
-                  </div>
 
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="application/pdf"
-                    className="hidden"
-                    onChange={onFileChange}
-                  />
-                </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="application/pdf"
+                      className="hidden"
+                      onChange={onFileChange}
+                    />
+                  </TabsContent>
 
-                {/* Estado de carga */}
+                  <TabsContent value="manual" className="space-y-4 mt-4">
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="sampleDate">Fecha de muestra</Label>
+                          <Input
+                            id="sampleDate"
+                            type="date"
+                            defaultValue={new Date().toISOString().split('T')[0]}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="labName">Laboratorio</Label>
+                          <Input
+                            id="labName"
+                            placeholder="Nombre del laboratorio"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="technician">Técnico</Label>
+                          <Input
+                            id="technician"
+                            placeholder="Nombre del técnico"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="reportNumber">Número de reporte</Label>
+                          <Input
+                            id="reportNumber"
+                            placeholder="Ej: RPT-2023-001"
+                          />
+                        </div>
+                      </div>
+
+                      <Separator className="my-4" />
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Parámetros Químicos</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="ph">pH</Label>
+                            <Input
+                              id="ph"
+                              type="number"
+                              step="0.1"
+                              placeholder="Ej: 7.2"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="turbidity">Turbiedad (NTU)</Label>
+                            <Input
+                              id="turbidity"
+                              type="number"
+                              step="0.01"
+                              placeholder="Ej: 0.8"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="chlorine">Cloro libre (mg/L)</Label>
+                            <Input
+                              id="chlorine"
+                              type="number"
+                              step="0.01"
+                              placeholder="Ej: 0.3"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="conductivity">Conductividad (µS/cm)</Label>
+                            <Input
+                              id="conductivity"
+                              type="number"
+                              placeholder="Ej: 245"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="hardness">Dureza total (mg/L CaCO₃)</Label>
+                            <Input
+                              id="hardness"
+                              type="number"
+                              placeholder="Ej: 120"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="tds">Sólidos disueltos totales (mg/L)</Label>
+                            <Input
+                              id="tds"
+                              type="number"
+                              placeholder="Ej: 180"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <Separator className="my-4" />
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Parámetros Bacteriológicos</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="totalColiforms">Coliformes totales (UFC/100mL)</Label>
+                            <Input
+                              id="totalColiforms"
+                              type="number"
+                              placeholder="Ej: 0"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="fecalColiforms">Coliformes fecales (UFC/100mL)</Label>
+                            <Input
+                              id="fecalColiforms"
+                              type="number"
+                              placeholder="Ej: 0"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="ecoli">E. coli (UFC/100mL)</Label>
+                            <Input
+                              id="ecoli"
+                              type="number"
+                              placeholder="Ej: 0"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="enterococci">Enterococos (UFC/100mL)</Label>
+                            <Input
+                              id="enterococci"
+                              type="number"
+                              placeholder="Ej: 0"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 mt-4">
+                        <Label htmlFor="notes">Observaciones</Label>
+                        <Input
+                          id="notes"
+                          placeholder="Observaciones adicionales sobre el análisis..."
+                        />
+                      </div>
+
+                      <Button className="w-full mt-4">
+                        Guardar mediciones
+                      </Button>
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="insitu" className="space-y-4 mt-4">
+                    <div className="space-y-4">
+                      <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
+                        <div className="flex">
+                          <div className="flex-shrink-0">
+                            <AlertCircle className="h-5 w-5 text-yellow-400" />
+                          </div>
+                          <div className="ml-3">
+                            <p className="text-sm text-yellow-700">
+                              Mediciones IN-SITU para registro provisional. Solo se registran los parámetros medidos en campo.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="insitu_date">Fecha de medición</Label>
+                          <Input
+                            id="insitu_date"
+                            type="date"
+                            defaultValue={new Date().toISOString().split('T')[0]}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="insitu_technician">Técnico</Label>
+                          <Input
+                            id="insitu_technician"
+                            placeholder="Nombre del técnico"
+                          />
+                        </div>
+                      </div>
+
+                      <Separator className="my-4" />
+
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-medium">Parámetros Medidos en Campo</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="insitu_ph">pH</Label>
+                            <Input
+                              id="insitu_ph"
+                              type="number"
+                              step="0.1"
+                              placeholder="Ej: 7.2"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="insitu_chlorine">Cloro libre (mg/L)</Label>
+                            <Input
+                              id="insitu_chlorine"
+                              type="number"
+                              step="0.01"
+                              placeholder="Ej: 0.3"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="insitu_temperature">Temperatura (°C)</Label>
+                            <Input
+                              id="insitu_temperature"
+                              type="number"
+                              step="0.1"
+                              placeholder="Ej: 25.5"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="insitu_turbidity">Turbiedad (NTU)</Label>
+                            <Input
+                              id="insitu_turbidity"
+                              type="number"
+                              step="0.01"
+                              placeholder="Ej: 0.8"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 mt-4">
+                        <Label htmlFor="insitu_notes">Observaciones</Label>
+                        <Input
+                          id="insitu_notes"
+                          placeholder="Observaciones adicionales sobre la medición in-situ..."
+                        />
+                      </div>
+
+                      <Button className="w-full mt-4">
+                        Guardar mediciones IN-SITU
+                      </Button>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+
                 {(isImporting || uploadStatus !== 'idle') && (
                   <div className="space-y-3">
                     {isImporting && (

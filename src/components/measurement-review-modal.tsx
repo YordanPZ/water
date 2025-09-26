@@ -6,12 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import {
-    LineChart,
-    Line,
     BarChart,
     Bar,
     XAxis,
@@ -31,17 +29,11 @@ import {
     Edit3,
     Save,
     X,
-    TrendingUp,
     Activity,
     Droplets,
     TestTube,
     Microscope,
-    Calendar,
-    MapPin,
-    User,
-    Clock
 } from 'lucide-react';
-import { ChemicalParameters, BacteriologicalParameters, WaterSample } from '@/types';
 
 interface MeasurementMetadata {
     sampleDate: string;
@@ -71,8 +63,6 @@ interface MeasurementReviewModalProps {
     faucetId: string;
     faucetName: string;
 }
-
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 
 export function MeasurementReviewModal({
     isOpen,

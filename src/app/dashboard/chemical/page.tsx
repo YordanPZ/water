@@ -39,6 +39,7 @@ import {
   Activity,
   Zap
 } from 'lucide-react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   formatDate,
   getQualityColor,
@@ -116,6 +117,7 @@ export default function ChemicalAnalysisPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
   const [selectedCategory, setSelectedCategory] = useState<'heavyMetals' | 'qualityIndicators'>('qualityIndicators');
   const [isLoading, setIsLoading] = useState(true);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const loadData = async () => {
@@ -362,59 +364,87 @@ export default function ChemicalAnalysisPage() {
             </TabsList>
 
             <TabsContent value="qualityIndicators" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <CheckCircle className="h-5 w-5" />
-                    Indicadores de Calidad (Tabla 3, Anexo I)
-                  </CardTitle>
-                  <CardDescription>
-                    Parámetros básicos de calidad del agua potable
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {criticalParams.filter(p =>
-                      CRITICAL_CHEMICAL_PARAMETERS.qualityIndicators.some(qi => qi.key === p.key)
-                    ).map((param, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium text-sm">{param.name}</p>
-                            <Badge
-                              variant={param.isExceeded ? "destructive" : "secondary"}
-                              className="text-xs"
-                            >
-                              {param.severity}
-                            </Badge>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <CheckCircle className="h-5 w-5" />
+                      Indicadores de Calidad (Tabla 3, Anexo I)
+                    </CardTitle>
+                    <CardDescription>
+                      Parámetros básicos de calidad del agua potable
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {criticalParams.filter(p =>
+                        CRITICAL_CHEMICAL_PARAMETERS.qualityIndicators.some(qi => qi.key === p.key)
+                      ).map((param, index) => (
+                        <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium text-sm">{param.name}</p>
+                              <Badge
+                                variant={param.isExceeded ? "destructive" : "secondary"}
+                                className="text-xs"
+                              >
+                                {param.severity}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {param.key === 'pH' ?
+                                `Rango: ${param.minLimit} - ${param.maxLimit}` :
+                                `Límite: ≤ ${param.limit} ${param.unit}`
+                              }
+                            </p>
                           </div>
-                          <p className="text-xs text-muted-foreground">
-                            {param.key === 'pH' ?
-                              `Rango: ${param.minLimit} - ${param.maxLimit}` :
-                              `Límite: ≤ ${param.limit} ${param.unit}`
-                            }
-                          </p>
+                          <div className="text-right">
+                            <p className={`font-bold ${param.isExceeded ? 'text-red-600' : 'text-green-600'}`}>
+                              {param.value.toFixed(2)} {param.unit}
+                            </p>
+                            {param.isExceeded && (
+                              <AlertTriangle className="h-4 w-4 text-red-500 ml-auto" />
+                            )}
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className={`font-bold ${param.isExceeded ? 'text-red-600' : 'text-green-600'}`}>
-                            {param.value.toFixed(2)} {param.unit}
+                      ))}
+                      {criticalParams.filter(p =>
+                        CRITICAL_CHEMICAL_PARAMETERS.qualityIndicators.some(qi => qi.key === p.key)
+                      ).length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No hay datos de indicadores de calidad disponibles
                           </p>
-                          {param.isExceeded && (
-                            <AlertTriangle className="h-4 w-4 text-red-500 ml-auto" />
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                    {criticalParams.filter(p =>
-                      CRITICAL_CHEMICAL_PARAMETERS.qualityIndicators.some(qi => qi.key === p.key)
-                    ).length === 0 && (
-                        <p className="text-sm text-muted-foreground text-center py-4">
-                          No hay datos de indicadores de calidad disponibles
-                        </p>
-                      )}
-                  </div>
-                </CardContent>
-              </Card>
+                        )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {trendData.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Tendencia de Indicadores</CardTitle>
+                      <CardDescription>Últimas 10 mediciones</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={trendData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="date" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <ReferenceLine y={6.5} stroke="#ef4444" strokeDasharray="2 2" label="pH Min" />
+                          <ReferenceLine y={9.5} stroke="#ef4444" strokeDasharray="2 2" label="pH Max" />
+                          <ReferenceLine y={4.0} stroke="#f59e0b" strokeDasharray="2 2" label="Turbidez Límite" />
+                          <Line type="monotone" dataKey="pH" stroke="#3b82f6" strokeWidth={2} name="pH" />
+                          <Line type="monotone" dataKey="turbidity" stroke="#f59e0b" strokeWidth={2} name="Turbidez (NTU)" />
+                          <Line type="monotone" dataKey="chlorine" stroke="#10b981" strokeWidth={2} name="Cloro (mg/L)" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
             </TabsContent>
 
             <TabsContent value="heavyMetals" className="space-y-4">
@@ -476,7 +506,7 @@ export default function ChemicalAnalysisPage() {
             <TabsContent value="trends" className="space-y-4">
               {trendData.length > 0 && (
                 <div className="grid gap-4 md:grid-cols-2">
-                  <Card>
+                  <Card className={isMobile ? "hidden" : ""}>
                     <CardHeader>
                       <CardTitle>Tendencia de Indicadores</CardTitle>
                       <CardDescription>Últimas 10 mediciones</CardDescription>
@@ -500,7 +530,7 @@ export default function ChemicalAnalysisPage() {
                     </CardContent>
                   </Card>
 
-                  <Card>
+                  <Card className={isMobile ? "hidden" : ""}>
                     <CardHeader>
                       <CardTitle>Tendencia de Metales Pesados</CardTitle>
                       <CardDescription>Últimas 10 mediciones (μg/L)</CardDescription>

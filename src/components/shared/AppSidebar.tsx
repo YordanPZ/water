@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import Link from 'next/link';
@@ -45,13 +46,13 @@ const navigationItems = [
     description: 'Resumen general del sistema'
   },
   {
-    title: 'Análisis Químicos',
+    title: 'Análisis de Laboratorio',
     url: '/dashboard/chemical',
     icon: TestTube,
     description: 'Monitoreo de parámetros químicos'
   },
   {
-    title: 'Análisis Bacteriológicos',
+    title: 'Muestras in situ',
     url: '/dashboard/bacterial',
     icon: Microscope,
     description: 'Control microbiológico del agua'
@@ -70,14 +71,7 @@ const navigationItems = [
   }
 ];
 
-const adminItems = [
-  {
-    title: 'Configuración',
-    url: '/dashboard/settings',
-    icon: Settings,
-    description: 'Configuración del sistema'
-  }
-];
+const adminItems: any = [];
 
 interface AppSidebarProps {
   activeAlerts?: number;
@@ -93,15 +87,19 @@ export function AppSidebar({ activeAlerts = 0 }: AppSidebarProps) {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href="/dashboard">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-blue-600 text-sidebar-primary-foreground">
-                  <Droplets className="size-4" />
+                <div className="flex items-center justify-center">
+                  <img
+                    src="/universidad.jpeg"
+                    alt="Logo Universidad"
+                    className="h-10 w-10 rounded-lg mr-2"
+                  />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">
                     Calidad del Agua
                   </span>
                   <span className="truncate text-xs">
-                    Universidad XYZ
+                    Universidad Nacional
                   </span>
                 </div>
               </Link>
@@ -145,31 +143,33 @@ export function AppSidebar({ activeAlerts = 0 }: AppSidebarProps) {
         </SidebarGroup>
 
         {/* Administración */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Administración</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {adminItems.map((item) => {
-                const isActive = pathname === item.url;
+        {adminItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Administración</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {adminItems.map((item: any) => {
+                  const isActive = pathname === item.url;
 
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      tooltip={item.description}
-                    >
-                      <Link href={item.url}>
-                        <item.icon className="size-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        tooltip={item.description}
+                      >
+                        <Link href={item.url}>
+                          <item.icon className="size-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter>
@@ -216,12 +216,6 @@ export function AppSidebar({ activeAlerts = 0 }: AppSidebarProps) {
                         {activeAlerts}
                       </Badge>
                     )}
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard/settings" className="cursor-pointer">
-                    <Settings className="mr-2 size-4" />
-                    Configuración
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem className="cursor-pointer text-red-600">

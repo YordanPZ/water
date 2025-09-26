@@ -1,6 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { Bell, Search, RefreshCw } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { Bell, Search, RefreshCw, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +26,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { getRelativeTime } from '@/lib/data/utils';
 import { Alert } from '@/types';
+import { useTheme } from 'next-themes';
 
 interface AppHeaderProps {
   title: string;
@@ -45,11 +48,53 @@ export function AppHeader({
 }: AppHeaderProps) {
   const activeAlerts = alerts.filter(alert => alert.status !== 'resolved');
   const criticalAlerts = activeAlerts.filter(alert => alert.severity === 'critical');
+  const { theme, setTheme } = useTheme();
+  const pathname = usePathname();
+
+  // Generar breadcrumbs dinámicos basados en la ruta actual
+
+  const dynamicBreadcrumbs: any = [];
+
+  if (pathname) {
+    const pathSegments = pathname.split('/').filter(Boolean);
+
+    // Mapeo de rutas a nombres legibles
+    const routeNames: Record<string, string> = {
+      'dashboard': 'Dashboard',
+      'chemical': 'Análisis de Laboratorio',
+      'bacterial': 'Muestras in situ',
+      'map': 'Mapa de Grifos',
+      'reports': 'Reportes',
+      'faucets': 'Grifos',
+      'settings': 'Configuración'
+    };
+
+    let currentPath = '';
+
+    pathSegments.forEach((segment, index) => {
+      currentPath += `/${segment}`;
+
+      // Si es un ID (como en /faucets/[id]), no lo agregamos como breadcrumb
+      if (segment !== 'dashboard' && !segment.match(/^[0-9a-fA-F-]+$/)) {
+        dynamicBreadcrumbs.push({
+          label: routeNames[segment] || segment,
+          href: index < pathSegments.length - 1 ? currentPath : undefined
+        });
+      }
+    });
+  }
+
+  // Usar los breadcrumbs proporcionados o los generados dinámicamente
+  const finalBreadcrumbs = breadcrumbs.length > 0 ? breadcrumbs : dynamicBreadcrumbs;
 
   const handleRefresh = () => {
     if (onRefresh && !isRefreshing) {
       onRefresh();
     }
+  };
+
+  const toggleTheme = () => {
+    setTheme(theme === 'dark' ? 'light' : 'dark');
   };
 
   return (
@@ -66,7 +111,7 @@ export function AppHeader({
                 Dashboard
               </BreadcrumbLink>
             </BreadcrumbItem>
-            {breadcrumbs.map((crumb, index) => (
+            {finalBreadcrumbs.map((crumb: any, index: any) => (
               <div key={index} className="flex items-center gap-2">
                 <BreadcrumbSeparator className="hidden md:block" />
                 <BreadcrumbItem>
@@ -87,7 +132,7 @@ export function AppHeader({
       {/* Título de la página */}
       <div className="flex-1 px-4">
         <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-          {title}
+          {finalBreadcrumbs.length > 0 ? finalBreadcrumbs[finalBreadcrumbs.length - 1].label : title}
         </h1>
       </div>
 
@@ -102,6 +147,21 @@ export function AppHeader({
             className="w-64 pl-8"
           />
         </div>
+
+        {/* Botón de tema oscuro/claro */}
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={toggleTheme}
+          className="h-8 w-8"
+          aria-label="Cambiar tema"
+        >
+          {theme === 'dark' ? (
+            <Sun className="h-4 w-4" />
+          ) : (
+            <Moon className="h-4 w-4" />
+          )}
+        </Button>
 
         {/* Botón de actualizar */}
         <Button

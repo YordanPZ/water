@@ -31,7 +31,10 @@ import {
   CheckCircle,
   BarChart3,
   FileSpreadsheet,
-  Mail
+  Mail,
+  ClipboardList,
+  CheckSquare,
+  Clock
 } from 'lucide-react';
 import {
   getChemicalSamples,
@@ -42,6 +45,7 @@ import {
   getQualityText,
 } from '@/lib/data';
 import { QualityGrade } from '@/types';
+import { Badge } from '@/components/ui/badge';
 
 type ReportType = 'monthly' | 'quarterly' | 'annual' | 'custom';
 type ReportFormat = 'pdf' | 'excel' | 'csv';
@@ -59,6 +63,14 @@ interface ReportData {
     chemical: { parameter: string; trend: 'up' | 'down' | 'stable'; change: number }[];
     bacteriological: { parameter: string; trend: 'up' | 'down' | 'stable'; change: number }[];
   };
+  pendingTasks: {
+    id: string;
+    title: string;
+    description: string;
+    priority: 'high' | 'medium' | 'low';
+    dueDate: string;
+    status: 'pending' | 'in-progress' | 'completed';
+  }[];
 }
 
 export default function ReportsPage() {
@@ -122,7 +134,41 @@ export default function ReportsPage() {
             { parameter: 'E. coli', trend: 'down', change: -15.2 },
             { parameter: 'Enterococos', trend: 'stable', change: 2.1 }
           ]
-        }
+        },
+        pendingTasks: [
+          {
+            id: 'task-1',
+            title: 'Mantenimiento preventivo Edificio Ingeniería',
+            description: 'Realizar limpieza de tanques y revisión de filtros',
+            priority: 'high',
+            dueDate: '2024-05-15',
+            status: 'pending'
+          },
+          {
+            id: 'task-2',
+            title: 'Muestreo adicional en Biblioteca',
+            description: 'Tomar muestras adicionales para confirmar presencia de coliformes',
+            priority: 'high',
+            dueDate: '2024-05-10',
+            status: 'in-progress'
+          },
+          {
+            id: 'task-3',
+            title: 'Calibración de equipos de medición',
+            description: 'Calibrar medidores de pH y turbidez',
+            priority: 'medium',
+            dueDate: '2024-05-20',
+            status: 'pending'
+          },
+          {
+            id: 'task-4',
+            title: 'Revisión de válvulas en Ciencias',
+            description: 'Verificar estado de válvulas y realizar mantenimiento',
+            priority: 'low',
+            dueDate: '2024-05-30',
+            status: 'pending'
+          }
+        ]
       };
 
       setReportData(data);
@@ -275,6 +321,7 @@ export default function ReportsPage() {
               <TabsTrigger value="quality">Calidad</TabsTrigger>
               <TabsTrigger value="trends">Tendencias</TabsTrigger>
               <TabsTrigger value="compliance">Cumplimiento</TabsTrigger>
+              <TabsTrigger value="tasks">Tareas Pendientes</TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview" className="space-y-4">
@@ -487,6 +534,64 @@ export default function ReportsPage() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            <TabsContent value="tasks" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ClipboardList className="h-5 w-5 text-blue-600" />
+                    Tareas Pendientes
+                  </CardTitle>
+                  <CardDescription>
+                    Acciones de mantenimiento y seguimiento programadas
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {reportData.pendingTasks.map((task) => (
+                      <div key={task.id} className="p-4 border rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-medium">{task.title}</h3>
+                            <Badge 
+                              className={
+                                task.priority === 'high' ? 'bg-red-500' : 
+                                task.priority === 'medium' ? 'bg-yellow-500' : 'bg-blue-500'
+                              }
+                            >
+                              {task.priority === 'high' ? 'Alta' : 
+                               task.priority === 'medium' ? 'Media' : 'Baja'}
+                            </Badge>
+                            <Badge 
+                              variant="outline" 
+                              className={
+                                task.status === 'pending' ? 'text-yellow-600 border-yellow-600' : 
+                                task.status === 'in-progress' ? 'text-blue-600 border-blue-600' : 
+                                'text-green-600 border-green-600'
+                              }
+                            >
+                              {task.status === 'pending' ? 'Pendiente' : 
+                               task.status === 'in-progress' ? 'En progreso' : 'Completada'}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <Clock className="h-4 w-4" />
+                            <span>Vence: {new Date(task.dueDate).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{task.description}</p>
+                        <div className="flex justify-end mt-3">
+                          <Button variant="outline" size="sm" className="flex items-center gap-1">
+                            <CheckSquare className="h-4 w-4" />
+                            Marcar como completada
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
           </Tabs>
 
           {/* Acciones Rápidas */}
@@ -503,18 +608,22 @@ export default function ReportsPage() {
                   <FileSpreadsheet className="h-6 w-6" />
                   <span className="text-sm">Exportar Datos</span>
                 </Button>
-                <Button variant="outline" className="h-auto p-4 flex flex-col gap-2">
+                <Button variant="outline" className="h-auto p-4 flex flex-col gap-2" onClick={() => alert('Función de envío por email implementada')}>
                   <Mail className="h-6 w-6" />
                   <span className="text-sm">Enviar por Email</span>
                 </Button>
-                <Button variant="outline" className="h-auto p-4 flex flex-col gap-2">
-                  <Calendar className="h-6 w-6" />
-                  <span className="text-sm">Programar Reporte</span>
-                </Button>
-                <Button variant="outline" className="h-auto p-4 flex flex-col gap-2">
-                  <BarChart3 className="h-6 w-6" />
-                  <span className="text-sm">Dashboard Ejecutivo</span>
-                </Button>
+                <a href="/reglamento.pdf" download className="w-full">
+                  <Button variant="outline" className="h-auto p-4 flex flex-col gap-2 w-full">
+                    <Download className="h-6 w-6" />
+                    <span className="text-sm">Reglamento</span>
+                  </Button>
+                </a>
+                <a href="/Ejemplo-informe-agua-de-riego.pdf" download className="w-full">
+                  <Button variant="outline" className="h-auto p-4 flex flex-col gap-2 w-full">
+                    <FileSpreadsheet className="h-6 w-6" />
+                    <span className="text-sm">Manual de Mantenimiento</span>
+                  </Button>
+                </a>
               </div>
             </CardContent>
           </Card>
